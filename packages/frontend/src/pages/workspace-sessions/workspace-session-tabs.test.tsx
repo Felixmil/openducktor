@@ -124,6 +124,13 @@ test("archive targets its tab, restore preserves selection, and the final archiv
   try {
     const firstTab = await view.findByRole("tab", { name: /First/ }, { timeout: 800 });
     expect(firstTab.getAttribute("aria-selected")).toBe("true");
+    expect(view.getByRole("tabpanel").id).toBe(firstTab.getAttribute("aria-controls") ?? "");
+    const scrollRegion = firstTab.closest(".hide-scrollbar");
+    expect(scrollRegion).not.toBeNull();
+    expect(scrollRegion?.contains(view.getByRole("button", { name: "New chat" }))).toBe(false);
+    expect(scrollRegion?.contains(view.getByRole("button", { name: "Session history" }))).toBe(
+      false,
+    );
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Archive Second" }));
     });

@@ -33,6 +33,18 @@ const renderFooter = (overrides: Partial<Parameters<typeof SettingsModalFooter>[
 };
 
 describe("SettingsModalFooter", () => {
+  test("distinguishes role saves from other settings", () => {
+    const renderer = renderFooter({
+      location: { section: "custom-agent-roles", repositorySection: "configuration" },
+    });
+    try {
+      expect(screen.getByRole("button", { name: "Close settings" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Save other settings" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Save Settings" })).toBeNull();
+    } finally {
+      renderer.unmount();
+    }
+  });
   test("keeps save enabled when only dev server fields are invalid", () => {
     const renderer = renderFooter({
       validationSummary: {

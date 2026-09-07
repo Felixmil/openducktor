@@ -160,7 +160,7 @@ function SettingsModalDialog({
         </DialogHeader>
 
         <div className="min-h-0 flex-1 overflow-hidden">
-          <div className="grid h-full min-h-0 grid-cols-[220px_minmax(0,1fr)]">
+          <div className="grid h-full min-h-0 grid-cols-[220px_minmax(0,1fr)] grid-rows-1">
             <SettingsSidebar
               section={navigation.section}
               disabled={isInteractionDisabled}

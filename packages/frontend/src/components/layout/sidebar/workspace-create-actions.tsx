@@ -1,4 +1,4 @@
-import { MessageCirclePlus, Plus, StickyNote } from "lucide-react";
+import { MessageCirclePlus, ListPlus } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { TaskCreateModal } from "@/components/features/task-create/task-create-modal";
@@ -12,32 +12,30 @@ export default function WorkspaceCreateActions({ compact = false }: { compact?: 
   const navigate = useNavigate();
   return (
     <>
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1 border-t border-sidebar-border pt-3">
         <Button
-          size={compact ? "icon" : "default"}
-          className={compact ? "size-8" : "w-full justify-start"}
+          variant="ghost"
+          size={compact ? "icon" : "sm"}
+          className={compact ? "size-9" : "w-full justify-start px-3 text-sidebar-foreground"}
           aria-label="Create task"
           title="Create task"
           disabled={!workspace}
           onClick={() => setTaskOpen(true)}
         >
-          <span aria-hidden="true" className="relative size-4 shrink-0">
-            <StickyNote className="size-4" />
-            <Plus className="absolute left-0.5 top-0.5 size-2.5" />
-          </span>
+          <ListPlus aria-hidden="true" />
           {!compact && "Create task"}
         </Button>
         <Button
-          variant="outline"
-          size={compact ? "icon" : "default"}
-          className={compact ? "size-8" : "w-full justify-start"}
+          variant="ghost"
+          size={compact ? "icon" : "sm"}
+          className={compact ? "size-9" : "w-full justify-start px-3 text-sidebar-foreground"}
           aria-label="Start workspace session"
           title="Start workspace session"
           disabled={!workspace}
           onClick={() => navigate("/workspace-sessions?create=session")}
         >
           <MessageCirclePlus />
-          {!compact && "New session"}
+          {!compact && "New chat"}
         </Button>
       </div>
       {taskOpen && workspace && (

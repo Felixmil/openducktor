@@ -94,7 +94,7 @@ export function WorkspaceSessionCreateDialog({
     >
       <DialogContent className="my-0 max-w-xl gap-0 p-0">
         <DialogHeader className="border-b border-border px-6 py-4">
-          <DialogTitle>New session</DialogTitle>
+          <DialogTitle>New chat</DialogTitle>
           <DialogDescription>Choose where the agent works and how it starts.</DialogDescription>
         </DialogHeader>
         <form
@@ -118,14 +118,14 @@ export function WorkspaceSessionCreateDialog({
                   maxLength={120}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Runtime and model</Label>
                   <ModelPicker
                     {...model.modelPicker}
                     selectionPolicy={
                       create.isPending
-                        ? { kind: "read_only", reason: "Creating session." }
+                        ? { kind: "read_only", reason: "Creating chat." }
                         : model.modelPicker.selectionPolicy
                     }
                     triggerClassName="w-full justify-between"
@@ -145,7 +145,7 @@ export function WorkspaceSessionCreateDialog({
               </div>
               {model.supportsProfiles && (
                 <div className="space-y-2">
-                  <Label id="workspace-session-profile">Runtime Profile</Label>
+                  <Label id="workspace-session-profile">Runtime profile</Label>
                   <Combobox
                     triggerAriaLabelledBy="workspace-session-profile"
                     value={model.selection?.profileId ?? ""}
@@ -172,7 +172,7 @@ export function WorkspaceSessionCreateDialog({
                   onValueChange={setRoleId}
                   disabled={create.isPending || roles.isPending || roles.isError}
                   options={[
-                    { value: "none", label: "No Role" },
+                    { value: "none", label: "No role" },
                     ...(roles.data ?? []).map((role) => ({ value: role.id, label: role.name })),
                   ]}
                 />
@@ -190,7 +190,7 @@ export function WorkspaceSessionCreateDialog({
                 <div
                   role="radiogroup"
                   aria-label="Work location"
-                  className="grid grid-cols-2 gap-3"
+                  className="grid grid-cols-1 gap-3 sm:grid-cols-2"
                 >
                   {(
                     [
@@ -259,7 +259,7 @@ export function WorkspaceSessionCreateDialog({
                 </div>
               )}
             </DialogBody>
-            <DialogFooter className="border-t border-border bg-muted/30 px-6 py-4">
+            <DialogFooter className="mt-0 border-t border-border bg-muted/30 px-6 py-4">
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancel
               </Button>
@@ -274,7 +274,7 @@ export function WorkspaceSessionCreateDialog({
                 }
               >
                 {create.isPending && <LoaderCircle className="animate-spin" />}
-                {create.isPending ? "Creating session…" : "Create session"}
+                {create.isPending ? "Creating chat…" : "Create chat"}
               </Button>
             </DialogFooter>
           </fieldset>

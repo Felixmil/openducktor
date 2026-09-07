@@ -39,8 +39,8 @@ export function WorkspaceSessionHistoryDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Archived sessions</DialogTitle>
-          <DialogDescription>Restore a session to return it to your workspace.</DialogDescription>
+          <DialogTitle>Archived chats</DialogTitle>
+          <DialogDescription>Restore a chat to return it to your workspace.</DialogDescription>
         </DialogHeader>
         <DialogBody className="mt-4 flex max-h-96 flex-col gap-2">
           {archived.isPending && <p role="status">Loading archived sessions…</p>}
@@ -68,7 +68,7 @@ export function WorkspaceSessionHistoryDialog({
                   className="truncate text-xs text-muted-foreground"
                   title={record.executionTarget.workingDirectory}
                 >
-                  {record.roleSnapshot?.name ?? "No Role"} ·{" "}
+                  {record.roleSnapshot?.name ?? "No role"} ·{" "}
                   {record.executionTarget.workingDirectory}
                 </p>
               </div>

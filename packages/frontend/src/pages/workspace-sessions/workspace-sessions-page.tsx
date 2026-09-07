@@ -1,7 +1,7 @@
 import type { WorkspaceSession } from "@openducktor/contracts";
 import { HostInvokeError } from "@openducktor/host-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, GitBranch, History, LoaderCircle, MessageCirclePlus } from "lucide-react";
+import { Archive, GitBranch, History, LoaderCircle, MessageCirclePlus, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import {
+  StudioTabStrip,
+  StudioTabsList,
+  StudioTabTrigger,
+  studioTabShellClassName,
+} from "@/components/features/agents/studio-tab-strip";
 import {
   getAgentSessionActivityStateFromSession,
   isAgentSessionActivityActive,
@@ -61,32 +67,24 @@ function WorkspaceSessionTab({
   const running = isAgentSessionActivityActive(activity);
   const title = workspaceSessionTitle(record);
   return (
-    <div
-      className={cn(
-        "group relative inline-flex h-8 shrink-0 items-center gap-1 rounded-t-[10px] pl-2 pr-1",
-        selected ? "bg-card text-foreground" : "bg-secondary text-foreground hover:bg-muted",
-      )}
-    >
-      <TabsTrigger
-        value={record.id}
-        title={title}
-        className="h-7 max-w-[19rem] justify-start gap-2 rounded-t-[8px] border-none bg-transparent px-0 pr-1 text-sm text-inherit data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-      >
+    <div className={studioTabShellClassName(selected)}>
+      <StudioTabTrigger value={record.id} title={title}>
         <span
           aria-label={statusLabel}
           className={cn(
             "mx-1 size-2 shrink-0 rounded-full bg-input",
-            running && "bg-emerald-500",
-            activity === "waiting_input" && "bg-amber-500",
-            activity === "error" && "bg-rose-500",
+            running && "bg-status-running",
+            activity === "waiting_input" && "bg-warning-accent",
+            activity === "error" && "bg-destructive",
           )}
         />
         <span className="max-w-48 truncate">{title}</span>
-      </TabsTrigger>
+      </StudioTabTrigger>
       <Button
         variant="ghost"
         size="icon"
-        className="size-6 shrink-0"
+        className="mr-1 size-6 shrink-0 text-muted-foreground opacity-60 group-hover:opacity-100 focus-visible:opacity-100 data-[active=true]:opacity-100"
+        data-active={selected}
         aria-label={`Archive ${title}`}
         title={`Archive ${title}`}
         disabled={pending}
@@ -169,43 +167,53 @@ function WorkspaceSessions({ workspace }: { workspace: ActiveWorkspace }) {
       </div>
     );
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col">
-      <div className="flex shrink-0 items-center gap-1 bg-studio-chrome px-2 pt-1">
-        <Tabs
-          value={selectedId ?? ""}
-          onValueChange={setSelectedId}
-          className="min-w-0 flex-1 overflow-x-auto"
-        >
-          <TabsList
-            aria-label="Workspace session tabs"
-            className="h-auto min-h-8 w-max justify-start gap-1 rounded-none bg-transparent p-0"
+    <Tabs
+      value={selectedId ?? ""}
+      onValueChange={setSelectedId}
+      className="h-full min-h-0 min-w-0 gap-0 overflow-hidden"
+    >
+      <StudioTabStrip
+        createAction={
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 shrink-0 text-studio-chrome-foreground"
+            aria-label="New chat"
+            title="New chat"
+            onClick={() => setCreating(true)}
           >
-            {records.data.map((record) => (
-              <WorkspaceSessionTab
-                key={record.id}
-                record={record}
-                selected={record.id === selectedId}
-                pending={archive.isPending}
-                onArchive={(target, running) => {
-                  archive.reset();
-                  if (running) setArchiveTarget(target);
-                  else archive.mutate({ sessionId: target.id, confirmStop: false });
-                }}
-              />
-            ))}
-          </TabsList>
-        </Tabs>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="mb-1 size-8 shrink-0"
-          aria-label="Session history"
-          title="Archived sessions"
-          onClick={() => setHistoryOpen(true)}
-        >
-          <History />
-        </Button>
-      </div>
+            <Plus />
+          </Button>
+        }
+        actions={
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 shrink-0 text-studio-chrome-foreground"
+            aria-label="Session history"
+            title="Archived chats"
+            onClick={() => setHistoryOpen(true)}
+          >
+            <History />
+          </Button>
+        }
+      >
+        <StudioTabsList aria-label="Workspace session tabs">
+          {records.data.map((record) => (
+            <WorkspaceSessionTab
+              key={record.id}
+              record={record}
+              selected={record.id === selectedId}
+              pending={archive.isPending}
+              onArchive={(target, running) => {
+                archive.reset();
+                if (running) setArchiveTarget(target);
+                else archive.mutate({ sessionId: target.id, confirmStop: false });
+              }}
+            />
+          ))}
+        </StudioTabsList>
+      </StudioTabStrip>
       {sessionReadModelLoadState.kind === "failed" && (
         <div role="alert" className="flex items-center gap-3 border-b border-border p-3 text-sm">
           <span className="flex-1 text-destructive">
@@ -222,7 +230,10 @@ function WorkspaceSessions({ workspace }: { workspace: ActiveWorkspace }) {
         </p>
       )}
       {selected ? (
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-card">
+        <TabsContent
+          value={selected.id}
+          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-card"
+        >
           <div className="border-b border-border px-4 py-2">
             <WorkspaceSessionTitleInput
               key={selected.id}
@@ -234,8 +245,8 @@ function WorkspaceSessions({ workspace }: { workspace: ActiveWorkspace }) {
               title={selected.executionTarget.workingDirectory}
             >
               <GitBranch className="size-3 shrink-0" />
-              {selected.executionTarget.workingDirectory} ·{" "}
-              {selected.roleSnapshot?.name ?? "No Role"}
+              <span className="min-w-0 truncate">{selected.executionTarget.workingDirectory}</span>
+              <span className="shrink-0">· {selected.roleSnapshot?.name ?? "No role"}</span>
             </p>
           </div>
           {settings.data && (
@@ -258,15 +269,21 @@ function WorkspaceSessions({ workspace }: { workspace: ActiveWorkspace }) {
               <Button onClick={() => void settings.refetch()}>Retry settings</Button>
             </div>
           )}
-        </section>
+        </TabsContent>
       ) : (
-        <section className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-card">
+        <section className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 bg-card p-6 text-center">
+          <MessageCirclePlus className="size-8 text-muted-foreground" aria-hidden="true" />
+          <h1 className="text-lg font-semibold">Workspace chat</h1>
           <p className="text-muted-foreground">
             {records.data.length ? "Select a session above." : "No active sessions."}
           </p>
+          <p className="max-w-sm text-sm text-muted-foreground">
+            Work with an agent outside a task. Choose a repository or worktree and start a
+            conversation.
+          </p>
           <Button onClick={() => setCreating(true)}>
             <MessageCirclePlus />
-            New session
+            New chat
           </Button>
         </section>
       )}
@@ -333,7 +350,7 @@ function WorkspaceSessions({ workspace }: { workspace: ActiveWorkspace }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </Tabs>
   );
 }
 

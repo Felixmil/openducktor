@@ -133,7 +133,7 @@ async function selectModel(view: ReturnType<typeof renderCreation>) {
   fireEvent.click(choice);
   await waitFor(
     () =>
-      expect(view.getByRole("button", { name: "Create session" }).hasAttribute("disabled")).toBe(
+      expect(view.getByRole("button", { name: "Create chat" }).hasAttribute("disabled")).toBe(
         false,
       ),
     { timeout: 800 },
@@ -161,7 +161,7 @@ test("an ordinary creation failure retains inputs, re-enables the form and does 
     const name = view.getByLabelText("Name optional");
     fireEvent.change(name, { target: { value: "Retained session" } });
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Create session" }));
+      fireEvent.click(view.getByRole("button", { name: "Create chat" }));
     });
     await act(async () => {
       rejectCreation(new Error("Runtime startup failed: executable missing"));
@@ -170,9 +170,7 @@ test("an ordinary creation failure retains inputs, re-enables the form and does 
     expect(view.getByRole("alert").textContent).toBe("Runtime startup failed: executable missing");
     expect(view.getByDisplayValue("Retained session") !== null).toBe(true);
     expect(name.closest("fieldset")?.disabled).toBe(false);
-    expect(view.getByRole("button", { name: "Create session" }).hasAttribute("disabled")).toBe(
-      false,
-    );
+    expect(view.getByRole("button", { name: "Create chat" }).hasAttribute("disabled")).toBe(false);
     expect(
       view
         .getByRole("button", { name: "Select model, OpenCode, Test model" })
@@ -202,19 +200,19 @@ test("creation keeps Role, Runtime Profile, Effort and location separate and blo
     await selectModel(view);
     fireEvent.click(view.getByRole("button", { name: "Custom role optional" }));
     expect(view.getAllByRole("option").map((entry) => entry.textContent?.trim())).toEqual([
-      "No Role",
+      "No role",
       "Alpha",
       "Zeta",
     ]);
     fireEvent.click(view.getByRole("option", { name: "Alpha" }));
-    fireEvent.click(view.getByRole("button", { name: "Runtime Profile" }));
+    fireEvent.click(view.getByRole("button", { name: "Runtime profile" }));
     fireEvent.click(view.getByRole("option", { name: "runtime-profile" }));
     fireEvent.click(view.getByRole("button", { name: "Effort" }));
     fireEvent.click(view.getByRole("option", { name: "high" }));
     fireEvent.change(view.getByLabelText("Name optional"), { target: { value: "My session" } });
     fireEvent.click(view.getByRole("radio", { name: /New worktree/ }));
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Create session" }));
+      fireEvent.click(view.getByRole("button", { name: "Create chat" }));
     });
     await waitFor(() => expect(requests.length).toBe(1), { timeout: 800 });
     expect(requests[0]).toEqual({
@@ -268,7 +266,7 @@ test("dirty checkout confirmation requires a second explicit create and Cancel s
   try {
     await selectModel(view);
     fireEvent.click(view.getByRole("radio", { name: /New worktree/ }));
-    fireEvent.click(view.getByRole("button", { name: "Create session" }));
+    fireEvent.click(view.getByRole("button", { name: "Create chat" }));
     await view.findByText(
       "This checkout has uncommitted changes. The new worktree will not include them.",
       {},

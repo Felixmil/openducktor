@@ -46,6 +46,8 @@ export function SettingsModalFooter({
   onCancel,
   onSave,
 }: SettingsModalFooterProps): ReactElement {
+  const editsCustomRoles = location.section === "custom-agent-roles";
+  const saveLabel = editsCustomRoles ? "Save other settings" : "Save Settings";
   const hasPromptValidationErrors = validationSummary.promptPlaceholderErrorCount > 0;
   const hasReusablePromptValidationErrors = validationSummary.reusablePromptFieldErrorCount > 0;
   const hasRuntimeAvailabilityErrors = validationSummary.runtimeAvailabilityErrorCount > 0;
@@ -67,7 +69,7 @@ export function SettingsModalFooter({
     <div className="mt-0 flex shrink-0 items-center justify-start border-t border-border px-6 pb-4 pt-4">
       <div className="flex items-center gap-2">
         <Button type="button" variant="secondary" disabled={saveState.isSaving} onClick={onCancel}>
-          Cancel
+          {editsCustomRoles ? "Close settings" : "Cancel"}
         </Button>
       </div>
 
@@ -134,8 +136,13 @@ export function SettingsModalFooter({
       </div>
 
       <div className="flex items-center gap-2">
-        <Button type="button" disabled={isSaveDisabled} onClick={onSave}>
-          {saveState.isSaving ? "Saving..." : "Save Settings"}
+        <Button
+          type="button"
+          variant={editsCustomRoles ? "outline" : "default"}
+          disabled={isSaveDisabled}
+          onClick={onSave}
+        >
+          {saveState.isSaving ? "Saving..." : saveLabel}
         </Button>
       </div>
     </div>
