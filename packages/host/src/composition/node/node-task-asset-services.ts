@@ -2,6 +2,8 @@ import { Effect } from "effect";
 import { createNodeTaskAssetFilePort } from "../../adapters/node/filesystem-task-asset-file-port";
 import { createSqliteTaskAssetRegistry } from "../../adapters/sqlite/sqlite-task-asset-registry";
 import { createSqliteTaskRepository } from "../../adapters/sqlite/sqlite-task-repository";
+import { createSqliteWorkspaceSessionStore } from "../../adapters/sqlite/sqlite-workspace-session-store";
+import type { WorkspaceSessionStorePort } from "../../ports/workspace-session-store-port";
 import { createSqliteTaskRepositoryContextManager } from "../../adapters/sqlite/sqlite-task-repository-context";
 import { createTaskAssetAwareTaskStore } from "../../application/task-assets/task-asset-aware-task-store";
 import {
@@ -20,6 +22,7 @@ import type { TaskStoreError, TaskStorePort } from "../../ports/task-repository-
 import type { HostShutdownStep } from "../host-lifecycle";
 
 export type NodeTaskAssetServices = {
+  workspaceSessionStore: WorkspaceSessionStorePort;
   startupSweep: () => Effect.Effect<void, TaskStoreError>;
   taskAssetReadService: TaskAssetReadService;
   taskAssetStagingService: TaskAssetStagingService;
@@ -78,6 +81,7 @@ export const createNodeTaskAssetServices = ({
   });
 
   return {
+    workspaceSessionStore: createSqliteWorkspaceSessionStore(contextManager.withDatabase),
     startupSweep: () =>
       taskAssetRecoveryService
         .startupSweep()

@@ -107,6 +107,7 @@ const createMockController = (snapshot: SettingsSnapshot) => ({
     repositories: 0,
     prompts: 0,
     "reusable-prompts": 0,
+    "custom-agent-roles": 0,
     appearance: 0,
     chat: 0,
     notifications: 0,

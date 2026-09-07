@@ -47,7 +47,9 @@ export const setupOrchestratorOperationsTestEnvironment = async () => {
   });
   configureShellBridge(
     createShellBridgeFixture({
+      bridge: { subscribeWorkspaceSessionUpdates: async () => () => {} },
       client: {
+        workspaceSessionListActive: async () => [],
         taskWorktreeGet: async () => ({ workingDirectory: "/tmp/repo/worktree" }),
         workspaceGetRepoConfig: async () => repoConfig,
         workspaceGetSettingsSnapshot: async () => createSettingsSnapshotFixture(),

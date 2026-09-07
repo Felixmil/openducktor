@@ -119,6 +119,19 @@ export const createWorkspaceSettingsServiceTestDouble = <
 >(
   overrides: Overrides,
 ): WorkspaceSettingsService => ({
+  listCustomAgentRoles: unexpectedEffectCall("workspace settings service", "listCustomAgentRoles"),
+  createCustomAgentRole: unexpectedEffectCall(
+    "workspace settings service",
+    "createCustomAgentRole",
+  ),
+  updateCustomAgentRole: unexpectedEffectCall(
+    "workspace settings service",
+    "updateCustomAgentRole",
+  ),
+  deleteCustomAgentRole: unexpectedEffectCall(
+    "workspace settings service",
+    "deleteCustomAgentRole",
+  ),
   addWorkspace: unexpectedEffectCall("workspace settings service", "addWorkspace"),
   getRepoConfig: unexpectedEffectCall("workspace settings service", "getRepoConfig"),
   getRepoConfigByRepoPath: unexpectedEffectCall(

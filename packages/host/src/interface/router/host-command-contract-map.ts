@@ -20,11 +20,13 @@ import type { createTaskWorktreeCommandHandlers } from "../commands/task-worktre
 import type { createTerminalCommandHandlers } from "../commands/terminal-command-handlers";
 import type { createWorkspaceFilesCommandHandlers } from "../commands/workspace-files-command-handlers";
 import type { createWorkspaceSettingsCommandHandlers } from "../commands/workspace-settings-command-handlers";
+import type { createWorkspaceSessionCommandHandlers } from "../commands/workspace-session-command-handlers";
 import type { HostCommandName } from "../commands/host-command-registry";
 
 type AllHostCommandHandlers = ReturnType<typeof createGeneratedImageCommandHandlers> &
   ReturnType<typeof createAgentSessionLiveCommandHandlers> &
   ReturnType<typeof createAgentRuntimeQueryCommandHandlers> &
+  ReturnType<typeof createWorkspaceSessionCommandHandlers> &
   ReturnType<typeof createDevServerCommandHandlers> &
   ReturnType<typeof createFilesystemCommandHandlers> &
   ReturnType<typeof createGitCommandHandlers> &

@@ -17,6 +17,7 @@ import { PromptOverridesSection } from "./settings-prompt-overrides-section";
 import { SettingsRepositoryContent } from "./settings-repository-content";
 import { SettingsReusablePromptsSection } from "./settings-reusable-prompts-section";
 import type { SettingsModalController } from "./use-settings-modal-controller";
+import { SettingsCustomAgentRolesSection } from "./settings-custom-agent-roles-section";
 
 type SettingsModalContentProps = {
   section: SettingsSectionId;
@@ -103,6 +104,10 @@ export function SettingsModalContent({
         onUpdateGeneral={updateGlobalGeneralSettings}
       />
     );
+  }
+
+  if (section === "custom-agent-roles") {
+    return <SettingsCustomAgentRolesSection disabled={isInteractionDisabled} />;
   }
 
   if (section === "prompts") {

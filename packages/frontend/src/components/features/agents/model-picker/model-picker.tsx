@@ -603,14 +603,15 @@ export function ModelPicker({
         )}
         <PopoverContent
           portalContainer={portalContainer}
-          className="w-[min(42rem,calc(100vw-2rem))] overflow-hidden p-0"
+          className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(42rem,calc(100vw-2rem))] flex-col overflow-hidden p-0"
+          collisionPadding={8}
           onOpenAutoFocus={(event) => {
             event.preventDefault();
             searchInputRef.current?.focus();
           }}
         >
-          <div className="grid min-h-72 grid-cols-[3.5rem_minmax(0,1fr)]">
-            <div className="flex flex-col items-center gap-1 border-r border-border bg-muted/40 p-2">
+          <div className="grid min-h-0 grid-cols-[3.5rem_minmax(0,1fr)]">
+            <div className="flex min-h-0 flex-col items-center gap-1 overflow-y-auto border-r border-border bg-muted/40 p-2">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -652,8 +653,8 @@ export function ModelPicker({
                 );
               })}
             </div>
-            <div className="min-w-0">
-              <div className="border-b border-border p-2">
+            <div className="flex min-h-0 min-w-0 flex-col">
+              <div className="shrink-0 border-b border-border p-2">
                 <Input
                   ref={searchInputRef}
                   aria-label="Search models"
@@ -669,7 +670,7 @@ export function ModelPicker({
                 />
               </div>
               <FavoriteNotice state={favoriteState} />
-              <div className="max-h-80 overflow-y-auto overflow-x-hidden">
+              <div className="min-h-0 max-h-80 overflow-y-auto overflow-x-hidden">
                 {visibleResources.map((runtime) => (
                   <ResourceNotice key={runtime.descriptor.kind} runtime={runtime} />
                 ))}

@@ -42,6 +42,7 @@ import type {
   AgentSessionLiveAdapterPort,
   AgentSessionLiveAdapterRegistryPort,
 } from "../../ports/agent-session-live-adapter-port";
+import type { AgentSessionPersistencePort } from "../../ports/agent-session-persistence-port";
 import {
   formatAgentSessionLiveFaultLog,
   toAgentSessionLiveEnvelope,
@@ -105,6 +106,7 @@ export type AgentSessionLiveStateService = {
 };
 
 export type CreateAgentSessionLiveStateServiceInput = {
+  readonly persistence?: AgentSessionPersistencePort;
   readonly adapterRegistry: AgentSessionLiveAdapterRegistryPort;
   readonly faultLog: AgentSessionLiveFaultLogger;
   readonly publish: AgentSessionLiveEnvelopePublisher;
@@ -131,11 +133,14 @@ export const createAgentSessionLiveStateService = ({
   faultLog,
   publish,
   coordinator = createLiveStateCoordinator(),
+  persistence,
 }: CreateAgentSessionLiveStateServiceInput): AgentSessionLiveStateService => {
   // Runtime reads can wait on the network, so they need a gate that does not block live events.
   const refreshGate = createLiveStateCoordinator();
   const executionEpisodes = createAgentSessionExecutionEpisodes();
-  const publishEnvelopeResult = (envelope: AgentSessionLiveEnvelope) =>
+  const publishEnvelopeResult = (
+    envelope: AgentSessionLiveEnvelope,
+  ): Effect.Effect<HostError | null, HostError> =>
     Effect.gen(function* () {
       if (envelope.type === "fault") {
         const faultLogResult = yield* Effect.either(
@@ -176,6 +181,25 @@ export const createAgentSessionLiveStateService = ({
         try: () => publish(envelope),
         catch: (cause) => toAgentSessionLiveEnvelopePublishError(cause, envelope.type),
       });
+      if (persistence) {
+        const persisted = yield* Effect.either(persistence.observe(envelope));
+        if (persisted._tag === "Left") {
+          let ref: AgentSessionLiveRef | undefined;
+          if (envelope.type === "transcript_event") ref = envelope.event.sessionRef;
+          else if (envelope.type === "session_upsert") ref = envelope.session.ref;
+          else if (envelope.type === "session_removed") ref = envelope.ref;
+          if (ref) {
+            yield* publishEnvelopeResult({
+              type: "fault",
+              repoPath: ref.repoPath,
+              ref,
+              operation: "agent-session.persist",
+              message: persisted.left.message,
+            });
+          }
+          return persisted.left;
+        }
+      }
       return null;
     });
 
@@ -271,7 +295,8 @@ export const createAgentSessionLiveStateService = ({
         }),
       ),
     loadContext: (input) =>
-      adapterRegistry.resolveForScope(input).pipe(
+      (persistence ? persistence.validateRef(input) : Effect.void).pipe(
+        Effect.zipRight(adapterRegistry.resolveForScope(input)),
         Effect.flatMap((adapter) => adapter.loadContext(input)),
         Effect.flatMap((result) =>
           parseAdapterOutput(
@@ -282,7 +307,8 @@ export const createAgentSessionLiveStateService = ({
         ),
       ),
     loadSessionDiff: (input) =>
-      adapterRegistry.resolveForScope(input).pipe(
+      (persistence ? persistence.validateRef(input) : Effect.void).pipe(
+        Effect.zipRight(adapterRegistry.resolveForScope(input)),
         Effect.flatMap((adapter) => {
           if (!adapter.loadSessionDiff) {
             return Effect.fail(
@@ -316,21 +342,34 @@ export const createAgentSessionLiveStateService = ({
         .resolveControlForScope(input)
         .pipe(Effect.flatMap((adapter) => adapter.startSession(input))),
     resumeSession: (input) =>
-      adapterRegistry
-        .resolveControlForScope(input)
-        .pipe(Effect.flatMap((adapter) => adapter.resumeSession(input))),
+      (persistence ? persistence.prepareResume(input) : Effect.succeed(input)).pipe(
+        Effect.flatMap((prepared) =>
+          adapterRegistry
+            .resolveControlForScope(prepared)
+            .pipe(Effect.flatMap((adapter) => adapter.resumeSession(prepared))),
+        ),
+      ),
     forkSession: (input) =>
       adapterRegistry
         .resolveControlForScope(input)
         .pipe(Effect.flatMap((adapter) => adapter.forkSession(input))),
     sendUserMessage: (input) =>
-      adapterRegistry
-        .resolveControlForScope(input)
-        .pipe(Effect.flatMap((adapter) => adapter.sendUserMessage(input))),
+      (persistence ? persistence.prepareSend(input) : Effect.succeed(input)).pipe(
+        Effect.flatMap((prepared) =>
+          adapterRegistry
+            .resolveControlForScope(prepared)
+            .pipe(Effect.flatMap((adapter) => adapter.sendUserMessage(prepared))),
+        ),
+        Effect.tap((accepted) =>
+          persistence ? persistence.recordAcceptedMessage(input, accepted) : Effect.void,
+        ),
+      ),
     updateSessionModel: (input) =>
-      adapterRegistry
-        .resolveControlForScope(input)
-        .pipe(Effect.flatMap((adapter) => adapter.updateSessionModel(input))),
+      (persistence ? persistence.validateModelUpdate(input) : Effect.void).pipe(
+        Effect.zipRight(adapterRegistry.resolveControlForScope(input)),
+        Effect.flatMap((adapter) => adapter.updateSessionModel(input)),
+        Effect.tap(() => (persistence ? persistence.recordModelUpdate(input) : Effect.void)),
+      ),
     stopSession: (input) =>
       adapterRegistry
         .resolveControlForScope(input)

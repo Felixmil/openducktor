@@ -202,6 +202,7 @@ export function useAgentOrchestratorOperations({
   }, [queryClient, sessionHistoryLoaders, sessionStore]);
   const currentSessionReadModel = useRepoSessionReadModel({
     workspaceRepoPath,
+    workspaceId,
     taskIds,
     isLoadingTasks,
     currentWorkspaceRepoPathRef,

@@ -57,6 +57,8 @@ export const createElectronShellBridge = (): ShellBridge => {
 
   return {
     client,
+    subscribeWorkspaceSessionUpdates: async (listener) =>
+      electronApi.subscribe("openducktor://workspace-session-updated", listener),
     capabilities: {
       canOpenExternalUrls: true,
       canPreviewLocalAttachments: true,

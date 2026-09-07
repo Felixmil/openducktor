@@ -36,6 +36,8 @@ import { createTaskWorktreeService } from "../../application/tasks/worktrees/tas
 import { createTerminalService } from "../../application/terminals/terminal-service";
 import { loadGlobalConfig } from "../../application/workspaces/workspace-settings-model";
 import { createWorkspaceSettingsService } from "../../application/workspaces/workspace-settings-service";
+import { createWorkspaceSessionService } from "../../application/workspaces/workspace-session-service";
+import { createWorkspaceSessionCommandHandlers } from "../../interface/commands/workspace-session-command-handlers";
 import type { GitProviderResolver } from "../../application/git/git-provider-resolver";
 import { HostOperationError } from "../../effect/host-errors";
 import { createTerminalLaunchEnvironment } from "../../infrastructure/terminals/terminal-launch-environment";
@@ -78,6 +80,7 @@ import { createLiveSessionFaultLogger, defaultLifecycleLogger } from "./node-hos
 import { createNodeRuntimeExecutableCommandHandlers } from "./node-runtime-executable-command-handlers";
 import { createNodeTaskAssetServices } from "./node-task-asset-services";
 import { createNodeTaskSessionServices } from "./node-task-session-services";
+import { createNodeWorkspaceSessionPersistence } from "./node-workspace-session-persistence";
 import { createOpenCodeRuntimeComposition } from "./opencode-runtime-composition";
 import { createRuntimeActiveSessionResolver } from "./runtime-active-session-resolver";
 import { resolveWorkspaceRuntimeMcpBridgeConnection } from "./workspace-runtime-mcp-bridge-connection";
@@ -116,22 +119,7 @@ export const assembleNodeEffectHostCommandRouter = (
     toolDiscovery,
     worktreeFiles,
   } = defaultPorts;
-  const liveSessionAdapterRegistry = createLiveSessionAdapterRegistry();
-  const filesystemService = createFilesystemService(filesystem);
-  const workspaceFilesService = createWorkspaceFilesService(filesystem, git);
-  const gitService = createGitService({
-    gitPort: git,
-    settingsConfig,
-    worktreeFiles,
-  });
   const workspaceSettingsService = createWorkspaceSettingsService(settingsConfig);
-  const gitProviderService = createGitProviderService({
-    resolver: gitProviderResolver,
-    workspaceSettingsService,
-  });
-  const localAttachmentService = createLocalAttachmentService(localAttachments);
-  const openInToolsService = createOpenInToolsService(openInTools);
-  const runtimeDefinitionsService = createRuntimeDefinitionsService();
   const taskAssetServiceInput: Parameters<typeof createNodeTaskAssetServices>[0] = {
     onBackgroundFailure,
     processEnv,
@@ -142,11 +130,30 @@ export const assembleNodeEffectHostCommandRouter = (
   }
   const assets = createNodeTaskAssetServices(taskAssetServiceInput);
   const { startupSweep, taskAssetReadService, taskAssetStagingService, taskStore } = assets;
+  const { persistence: sessionPersistence, publishUpdated: publishWorkspaceSessionUpdated } =
+    createNodeWorkspaceSessionPersistence({
+      store: assets.workspaceSessionStore,
+      settings: workspaceSettingsService,
+      git,
+      eventBus,
+    });
+  const liveSessionAdapterRegistry = createLiveSessionAdapterRegistry();
   const agentSessionLiveStateService = createAgentSessionLiveStateService({
     adapterRegistry: liveSessionAdapterRegistry,
+    persistence: sessionPersistence,
     faultLog: createLiveSessionFaultLogger(lifecycleLogger),
     publish: createLiveSessionPublisher(eventBus),
   });
+  const filesystemService = createFilesystemService(filesystem);
+  const workspaceFilesService = createWorkspaceFilesService(filesystem, git);
+  const gitService = createGitService({ gitPort: git, settingsConfig, worktreeFiles });
+  const gitProviderService = createGitProviderService({
+    resolver: gitProviderResolver,
+    workspaceSettingsService,
+  });
+  const localAttachmentService = createLocalAttachmentService(localAttachments);
+  const openInToolsService = createOpenInToolsService(openInTools);
+  const runtimeDefinitionsService = createRuntimeDefinitionsService();
   const systemDiagnosticsService = createSystemDiagnosticsService({
     runtimeDefinitionsService,
     runtimeHealth,
@@ -328,6 +335,16 @@ export const assembleNodeEffectHostCommandRouter = (
     logger: lifecycleLogger,
   });
   let pullRequestSyncLoop: TaskSyncLoopHandle | null = null;
+  const workspaceSessionService = createWorkspaceSessionService({
+    store: assets.workspaceSessionStore,
+    settings: workspaceSettingsService,
+    runtime: runtimeOrchestratorWithEffectiveRegistry,
+    live: agentSessionLiveStateService,
+    git,
+    settingsConfig,
+    worktreeFiles,
+    systemCommands,
+  });
   let taskAssetStagingSwept = false;
   const stopPullRequestSyncLoop = () =>
     Effect.gen(function* () {
@@ -486,6 +503,10 @@ export const assembleNodeEffectHostCommandRouter = (
       ...createTaskWorktreeCommandHandlers(taskWorktreeService),
       ...createTerminalCommandHandlers(terminalService),
       ...createWorkspaceSettingsCommandHandlers(workspaceSettingsService),
+      ...createWorkspaceSessionCommandHandlers(
+        workspaceSessionService,
+        publishWorkspaceSessionUpdated,
+      ),
     },
   });
   return Object.assign(router, {

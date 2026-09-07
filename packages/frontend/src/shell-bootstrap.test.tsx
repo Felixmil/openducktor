@@ -29,6 +29,7 @@ const expectNoManualShellBootstrapSteps = (source: string): void => {
 const createTestShellBridge = (): ShellBridge =>
   ({
     client: createHostClientFixture({}),
+    subscribeWorkspaceSessionUpdates: async () => () => {},
     subscribeRunEvents: async () => () => {},
     subscribeDevServerEvents: async () => ({
       transportEpoch: "test:0",

@@ -3,6 +3,7 @@ import type { RepositorySectionId, SettingsSectionId } from "./settings-modal-co
 import type { SettingsWorkspaceSelectionPolicy } from "./settings-workspace-selection";
 
 export type SettingsDeepLink =
+  | { kind: "custom-agent-roles" }
   | {
       kind: "repository-dev-servers";
       repositoryPath: string | null;
@@ -44,6 +45,8 @@ export const resolveSettingsDeepLink = (deepLink: SettingsDeepLink): SettingsDee
         scope: "global",
         navigation: { section: deepLink.section },
       };
+    case "custom-agent-roles":
+      return { scope: "global", navigation: { section: "custom-agent-roles" } };
     case "repository-dev-servers":
       return {
         scope: "repository",

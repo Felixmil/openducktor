@@ -6,6 +6,10 @@ import { taskAssetFailureSchema } from "./task-asset-schemas";
 import { terminalFailureSchema } from "./terminal-schemas";
 
 export const hostInvokeFailureSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("workspace_session_confirmation"),
+    field: z.enum(["confirmUncommittedChanges", "confirmStop"]),
+  }),
   z
     .object({ kind: z.literal("runtime_query"), runtimeQueryFailure: runtimeQueryFailureSchema })
     .strict(),

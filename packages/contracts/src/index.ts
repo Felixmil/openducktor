@@ -74,3 +74,5 @@ export * from "./task-schemas";
 export * from "./terminal-protocol";
 export * from "./terminal-schemas";
 export * from "./workspace-agent-studio-state-schemas";
+export * from "./workspace-session-schemas";
+export * from "./workspace-session-command-schemas";

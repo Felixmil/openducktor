@@ -1,0 +1,27 @@
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+
+export const workspaceSessions = sqliteTable(
+  "workspace_sessions",
+  {
+    id: text("id").primaryKey(),
+    runtimeKind: text("runtime_kind").notNull(),
+    externalSessionId: text("external_session_id").notNull(),
+    executionTargetJson: text("execution_target_json").notNull(),
+    roleSnapshotJson: text("role_snapshot_json"),
+    selectedModelJson: text("selected_model_json"),
+    generatedTitle: text("generated_title"),
+    manualTitle: text("manual_title"),
+    createdAt: integer("created_at_ms").notNull(),
+    updatedAt: integer("updated_at_ms").notNull(),
+    archivedAt: integer("archived_at_ms"),
+  },
+  (table) => [
+    uniqueIndex("idx_workspace_sessions_runtime_identity").on(
+      table.runtimeKind,
+      table.externalSessionId,
+    ),
+    index("idx_workspace_sessions_active_updated").on(table.archivedAt, table.updatedAt),
+  ],
+);
+
+export type WorkspaceSessionRow = typeof workspaceSessions.$inferSelect;

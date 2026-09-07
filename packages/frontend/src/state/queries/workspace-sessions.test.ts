@@ -1,0 +1,150 @@
+import { describe, expect, test } from "bun:test";
+import type { WorkspaceSession } from "@openducktor/contracts";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import {
+  updateWorkspaceSessionQueries,
+  workspaceSessionListQueryOptions,
+  workspaceSessionQueryKeys,
+} from "./workspace-sessions";
+
+const session = (id: string, updatedAt = 1000): WorkspaceSession => ({
+  id,
+  runtimeKind: "codex",
+  externalSessionId: `native-${id}`,
+  executionTarget: { kind: "local_repo_root", workingDirectory: "/repo" },
+  roleSnapshot: null,
+  selectedModel: null,
+  generatedTitle: null,
+  manualTitle: null,
+  createdAt: 1000,
+  updatedAt,
+  archivedAt: null,
+});
+
+describe("Workspace Session query cache", () => {
+  test("returning to a Workspace shows its cached list while its background read is pending", () => {
+    const client = new QueryClient();
+    const first = session("workspace-A");
+    const second = session("workspace-B");
+    client.setQueryData(workspaceSessionQueryKeys.list("A", false), [first]);
+    client.setQueryData(workspaceSessionQueryKeys.list("B", false), [second]);
+    const port = {
+      workspaceSessionListActive: () => new Promise<WorkspaceSession[]>(() => {}),
+      workspaceSessionListArchived: async () => [],
+    };
+    const observer = new QueryObserver(client, workspaceSessionListQueryOptions("A", false, port));
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      expect(observer.getCurrentResult().data).toEqual([first]);
+      observer.setOptions(workspaceSessionListQueryOptions("B", false, port));
+      expect(observer.getCurrentResult().data).toEqual([second]);
+      observer.setOptions(workspaceSessionListQueryOptions("A", false, port));
+      expect(observer.getCurrentResult().data).toEqual([first]);
+      expect(observer.getCurrentResult().isFetching).toBe(true);
+      expect(observer.getCurrentResult().isPending).toBe(false);
+    } finally {
+      unsubscribe();
+      client.clear();
+    }
+  });
+
+  test("updates only the owning workspace and moves archive membership without changing activity", () => {
+    const client = new QueryClient();
+    try {
+      const first = session("first");
+      const second = session("second", 2000);
+      client.setQueryData(workspaceSessionQueryKeys.list("A", false), [second, first]);
+      client.setQueryData(workspaceSessionQueryKeys.list("A", true), []);
+      client.setQueryData(workspaceSessionQueryKeys.list("B", false), [first]);
+      updateWorkspaceSessionQueries(client, "A", { ...first, archivedAt: 3000 });
+      expect(
+        client.getQueryData<WorkspaceSession[]>(workspaceSessionQueryKeys.list("A", false)),
+      ).toEqual([second]);
+      expect(
+        client.getQueryData<WorkspaceSession[]>(workspaceSessionQueryKeys.list("A", true)),
+      ).toEqual([{ ...first, archivedAt: 3000 }]);
+      expect(
+        client.getQueryData<WorkspaceSession[]>(workspaceSessionQueryKeys.list("B", false)),
+      ).toEqual([first]);
+      updateWorkspaceSessionQueries(client, "A", first);
+      expect(
+        client.getQueryData<WorkspaceSession[]>(workspaceSessionQueryKeys.list("A", false)),
+      ).toEqual([second, first]);
+      expect(
+        client.getQueryData<WorkspaceSession[]>(workspaceSessionQueryKeys.list("A", true)),
+      ).toEqual([]);
+    } finally {
+      client.clear();
+    }
+  });
+
+  test("a late background read cannot overwrite newer metadata", async () => {
+    const client = new QueryClient();
+    try {
+      const entry = session("first");
+      client.setQueryData(workspaceSessionQueryKeys.list("A", false), [entry]);
+      let resolveRead!: (value: WorkspaceSession[]) => void;
+      const read = client
+        .fetchQuery(
+          workspaceSessionListQueryOptions("A", false, {
+            workspaceSessionListActive: () =>
+              new Promise((resolve) => {
+                resolveRead = resolve;
+              }),
+            workspaceSessionListArchived: async () => [],
+          }),
+        )
+        .catch(() => undefined);
+      const updated = { ...entry, manualTitle: "New name" };
+      updateWorkspaceSessionQueries(client, "A", updated);
+      resolveRead([entry]);
+      await read;
+      expect(
+        client.getQueryData<WorkspaceSession[]>(workspaceSessionQueryKeys.list("A", false)),
+      ).toEqual([updated]);
+    } finally {
+      client.clear();
+    }
+  });
+
+  test("an event during the initial read starts a fresh complete list read", async () => {
+    const client = new QueryClient();
+    const entry = session("first");
+    let resolveOld!: (value: WorkspaceSession[]) => void;
+    let reads = 0;
+    const observer = new QueryObserver(
+      client,
+      workspaceSessionListQueryOptions("A", false, {
+        workspaceSessionListActive: () => {
+          reads += 1;
+          if (reads === 1)
+            return new Promise((resolve) => {
+              resolveOld = resolve;
+            });
+          return Promise.resolve([entry]);
+        },
+        workspaceSessionListArchived: async () => [],
+      }),
+    );
+    let ready!: () => void;
+    const loaded = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    const unsubscribe = observer.subscribe((result) => {
+      if (result.isSuccess) ready();
+    });
+    try {
+      updateWorkspaceSessionQueries(client, "A", entry);
+      resolveOld([]);
+      await loaded;
+      expect(reads).toBe(2);
+      expect(
+        client.getQueryData<WorkspaceSession[]>(workspaceSessionQueryKeys.list("A", false)),
+      ).toEqual([entry]);
+      expect(workspaceSessionListQueryOptions("A").gcTime).toBe(Infinity);
+    } finally {
+      unsubscribe();
+      client.clear();
+    }
+  });
+});

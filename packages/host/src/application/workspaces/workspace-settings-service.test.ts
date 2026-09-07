@@ -37,6 +37,7 @@ const repoConfig = (workspaceId: string, repoPath: string): RepoConfig => ({
   agentStudioState: { openTaskIds: [] },
 });
 const globalConfig = (overrides: Partial<GlobalConfig> = {}): GlobalConfig => ({
+  customAgentRoles: [],
   version: 3,
   system: {},
   theme: "light",

@@ -1,5 +1,6 @@
 import {
   agentModelFavoritesSchema,
+  customAgentRoleInputSchema,
   globalGitConfigSchema,
   repoHooksSchema,
   runtimeKindSchema,
@@ -125,6 +126,10 @@ export const createWorkspaceSettingsCommandHandlers = (
     | "getRepoConfig"
     | "getSettingsSnapshot"
     | "listWorkspaces"
+    | "listCustomAgentRoles"
+    | "createCustomAgentRole"
+    | "updateCustomAgentRole"
+    | "deleteCustomAgentRole"
     | "reorderWorkspaces"
     | "replaceAgentStudioState"
     | "saveRepoSettings"
@@ -138,6 +143,29 @@ export const createWorkspaceSettingsCommandHandlers = (
   >,
 ) =>
   ({
+    custom_agent_role_list: (args) => {
+      requireNoArgs("custom_agent_role_list", args);
+      return workspaceSettingsService.listCustomAgentRoles();
+    },
+    custom_agent_role_create: (args) =>
+      workspaceSettingsService.createCustomAgentRole(
+        customAgentRoleInputSchema.parse(
+          requireObjectArgs("custom_agent_role_create", args, "input").input,
+        ),
+      ),
+    custom_agent_role_update: (args) => {
+      const record = requireObjectArgs("custom_agent_role_update", args, "input");
+      return workspaceSettingsService.updateCustomAgentRole(
+        requireString(commandInputStringSchema.safeParse(record.id), "id"),
+        customAgentRoleInputSchema.parse(record.input),
+      );
+    },
+    custom_agent_role_delete: (args) => {
+      const record = requireObjectArgs("custom_agent_role_delete", args, "id");
+      return workspaceSettingsService.deleteCustomAgentRole(
+        requireString(commandInputStringSchema.safeParse(record.id), "id"),
+      );
+    },
     workspace_list: (args) => {
       requireNoArgs("workspace_list", args);
       return workspaceSettingsService.listWorkspaces();

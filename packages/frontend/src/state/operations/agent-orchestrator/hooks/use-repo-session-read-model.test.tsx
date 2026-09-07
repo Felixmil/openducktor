@@ -6,6 +6,7 @@ import type {
   AgentSessionLiveSnapshot,
   AgentSessionRecord,
   RepoConfig,
+  WorkspaceSession,
 } from "@openducktor/contracts";
 import { QueryClient } from "@tanstack/react-query";
 import { waitFor } from "@testing-library/react";
@@ -18,6 +19,8 @@ import {
   createAgentSessionFixture,
   createSettingsSnapshotFixture,
 } from "@/test-utils/shared-test-fixtures";
+import { createShellBridgeFixture } from "@/test-utils/focused-fixture";
+import { configureShellBridge, createUnavailableShellBridge } from "@/lib/shell-bridge";
 import type { AgentSessionTranscriptEventConsumer } from "../events/session-transcript-events";
 import type { AgentSessionLiveFrontendPort } from "./use-repo-session-read-model";
 import { useRepoSessionReadModel } from "./use-repo-session-read-model";
@@ -212,6 +215,69 @@ const createRepositoryConflictRetryState = (
   });
 
 describe("useRepoSessionReadModel", () => {
+  test("keeps target faults through transcript events and clears them after a valid snapshot", async () => {
+    const entry: WorkspaceSession = {
+      id: "workspace-session",
+      runtimeKind: record.runtimeKind,
+      externalSessionId: record.externalSessionId,
+      executionTarget: { kind: "local_repo_root", workingDirectory: record.workingDirectory },
+      roleSnapshot: null,
+      selectedModel: null,
+      generatedTitle: null,
+      manualTitle: null,
+      createdAt: 1000,
+      updatedAt: 1000,
+      archivedAt: null,
+    };
+    const correct = snapshot({ repositoryScope: { kind: "repository" } });
+    const wrong = { ...correct, ref: { ...correct.ref, workingDirectory: "/wrong" } };
+    configureShellBridge(
+      createShellBridgeFixture({
+        client: { workspaceSessionListActive: async () => [entry] },
+        bridge: { subscribeWorkspaceSessionUpdates: async () => () => {} },
+      }),
+    );
+    const state = createState((emit) => {
+      emit({ type: "snapshot", repoPath: "/repo", sessions: [wrong] });
+    }, []);
+    state.props.workspaceId = "workspace-A";
+    try {
+      await state.harness.mount();
+      await state.harness.waitFor(
+        (value) => value.getSessionFault(correct.ref)?.source === "workspace-target",
+      );
+      await state.harness.run(() => {
+        state.emit({
+          type: "transcript_event",
+          event: {
+            type: "assistant_message",
+            externalSessionId: record.externalSessionId,
+            messageId: "message",
+            message: "An unrelated transcript update.",
+            timestamp: "2026-09-07T00:00:00Z",
+            sessionRef: correct.ref,
+          },
+        });
+      });
+      expect(state.harness.getLatest().getSessionFault(correct.ref)?.source).toBe(
+        "workspace-target",
+      );
+      await state.harness.run(() =>
+        state.emit({
+          type: "snapshot",
+          repoPath: "/repo",
+          sessions: [{ ...correct, activity: "running" }],
+        }),
+      );
+      expect(state.harness.getLatest().getSessionFault(correct.ref)).toBeNull();
+      expect(state.getStoredSession(correct.ref)?.status).toBe("running");
+    } finally {
+      await state.harness.unmount();
+      state.queryClient.clear();
+      configureShellBridge(createUnavailableShellBridge());
+    }
+  });
+
   test("observes the repository and commits snapshot plus ordered creation once", async () => {
     const state = createState((emit) => {
       emit({

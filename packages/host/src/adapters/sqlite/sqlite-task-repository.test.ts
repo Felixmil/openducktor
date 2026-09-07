@@ -113,14 +113,21 @@ describe("createSqliteTaskRepository SQLite integration", () => {
 
     const tableNames = readTableNames(databasePath);
     expect(tableNames).toEqual(
-      expect.arrayContaining(["__drizzle_migrations", "task_assets", "task_documents", "tasks"]),
+      expect.arrayContaining([
+        "__drizzle_migrations",
+        "task_assets",
+        "task_documents",
+        "tasks",
+        "workspace_sessions",
+      ]),
     );
     expect(tableNames).not.toContain("task_store_schema_migrations");
     expect(readDrizzleMigrationRows(databasePath)).toEqual([
       { hash: expect.stringMatching(/^[a-f0-9]{64}$/) },
       { hash: expect.stringMatching(/^[a-f0-9]{64}$/) },
+      { hash: expect.stringMatching(/^[a-f0-9]{64}$/) },
     ]);
-    expect(readDrizzleMigrationRows(databasePath)).toHaveLength(2);
+    expect(readDrizzleMigrationRows(databasePath)).toHaveLength(3);
     const database = new Database(databasePath);
     try {
       const journalMode = database
@@ -143,7 +150,7 @@ describe("createSqliteTaskRepository SQLite integration", () => {
     );
 
     expect(results).toEqual(Array.from({ length: 8 }, () => []));
-    expect(readDrizzleMigrationRows(databasePath)).toHaveLength(2);
+    expect(readDrizzleMigrationRows(databasePath)).toHaveLength(3);
   });
 
   test("enforces the approved task asset registry shape and cascades task deletion", async () => {

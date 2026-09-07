@@ -14,6 +14,7 @@ import {
 
 const createTestShellBridge = (overrides: Partial<ShellBridge> = {}): ShellBridge => ({
   client: createHostClientFixture({}),
+  subscribeWorkspaceSessionUpdates: async () => () => {},
   subscribeRunEvents: async () => () => {},
   subscribeDevServerEvents: async () => ({
     transportEpoch: "test:0",
