@@ -47,15 +47,36 @@ test("renders create_task through the real message card as a Kanban-style task",
   });
   expect(html).toContain('aria-label="create_task"');
   expect(html).toContain('data-task-id="task-1"');
-  expect(html).toContain("Task created");
+  expect(html).not.toContain("Task created");
   expect(html).toContain("Add task search shortcut");
   expect(html).toContain("accessibility");
   expect(html).toContain("P2");
   expect(html).not.toContain("odt_create_task");
+  const document = new DOMParser().parseFromString(html, "text/html");
+  const section = document.querySelector("section");
+  const regularTool = section?.firstElementChild;
+  expect(regularTool?.querySelector("details > summary")?.textContent).toContain("create_task");
+  expect(regularTool?.querySelector("details[open]")).toBeNull();
+  expect(regularTool?.nextElementSibling?.getAttribute("data-task-id")).toBe("task-1");
+  const card = document.querySelector('[data-task-id="task-1"]');
+  expect(card?.querySelector("h3")?.textContent).toBe("Add task search shortcut");
+  expect(card?.textContent?.indexOf("Add task search shortcut")).toBeLessThan(
+    card?.textContent?.indexOf("task-1") ?? -1,
+  );
+  expect(card?.querySelector(".line-clamp-5")?.textContent).toBe(task().description);
+  expect(html).not.toContain("Tool details");
 });
 
-test("renders search_tasks results with totals, empty results, and truncation", () => {
+test("renders search_tasks as a regular tool with filters and counts, never task cards", () => {
   const html = renderTool("odt_search_tasks", {
+    input: {
+      title: "login",
+      status: "open",
+      issueType: "feature",
+      priority: 0,
+      tags: ["auth", "web"],
+      limit: 2,
+    },
     output: JSON.stringify({
       results: [{ task: task() }, { task: task("task-2") }],
       limit: 2,
@@ -63,14 +84,67 @@ test("renders search_tasks results with totals, empty results, and truncation", 
       hasMore: true,
     }),
   });
-  expect(html).toContain('data-task-id="task-1"');
-  expect(html).toContain('data-task-id="task-2"');
-  expect(html).toContain("5 tasks found");
-  expect(html).toContain("Showing 2 of 5 tasks");
+  expect(html).not.toContain("data-task-id");
+  const document = new DOMParser().parseFromString(html, "text/html");
+  const summary = document.querySelector("section > div > details > summary");
+  expect(summary?.textContent).toContain(
+    "5 results, 2 returned · title: login · status: open · type: feature · priority: P0 · tags: auth, web · limit: 2",
+  );
+  expect(document.querySelectorAll("h3")).toHaveLength(0);
+  expect(document.querySelector("details[open]")).toBeNull();
   const empty = renderTool("odt_search_tasks", {
+    input: { limit: 10 },
     output: JSON.stringify({ results: [], limit: 10, totalCount: 0, hasMore: false }),
   });
-  expect(empty).toContain("No tasks match this search.");
+  expect(empty).toContain("0 results · limit: 10");
+  expect(empty).not.toContain("data-task-id");
+});
+
+test("keeps a hundred search results inside the regular collapsed output", () => {
+  const html = renderTool("odt_search_tasks", {
+    input: { limit: 100 },
+    output: JSON.stringify({
+      results: Array.from({ length: 100 }, (_, index) => ({ task: task(`task-${index}`) })),
+      limit: 100,
+      totalCount: 500,
+      hasMore: true,
+    }),
+  });
+  const document = new DOMParser().parseFromString(html, "text/html");
+  expect(document.querySelectorAll("[data-task-id], h3")).toHaveLength(0);
+  expect(document.querySelector("section > div > details > summary")?.textContent).toContain(
+    "500 results, 100 returned",
+  );
+  expect(document.querySelectorAll("details")).toHaveLength(3);
+  expect(document.querySelector("details[open]")).toBeNull();
+});
+
+test("search shows filters while pending and does not invent a count on failure", () => {
+  for (const status of ["pending", "running", "error"] as const) {
+    const html = renderTool("odt_search_tasks", {
+      status,
+      input: { status: "open", limit: 2 },
+      error: "Search unavailable",
+      output: "malformed",
+    });
+    const document = new DOMParser().parseFromString(html, "text/html");
+    const summary = document.querySelector("section > div > details > summary")?.textContent;
+    if (status !== "error") expect(summary).toContain("status: open · limit: 2");
+    expect(summary).not.toContain("results");
+    if (status === "error") expect(summary).toContain("Search unavailable");
+    expect(document.querySelectorAll("[data-task-id], h3")).toHaveLength(0);
+  }
+});
+
+test("keeps the full description in the five-line clamped card", () => {
+  const description = Array.from({ length: 10 }, (_, i) => `Description line ${i + 1}`).join("\n");
+  const html = renderTool("odt_create_task", {
+    output: JSON.stringify({ task: { ...task(), description } }),
+  });
+  const document = new DOMParser().parseFromString(html, "text/html");
+  const paragraph = document.querySelector("[data-task-id] .line-clamp-5");
+  expect(paragraph?.textContent).toBe(description);
+  expect(paragraph?.classList.contains("whitespace-pre-wrap")).toBe(true);
 });
 
 test("does not claim task creation before completion or after failure", () => {
@@ -82,7 +156,7 @@ test("does not claim task creation before completion or after failure", () => {
     expect(html).not.toContain("Task created");
     expect(html).not.toContain("data-task-id");
     if (status === "error") expect(html).toContain("Database unavailable");
-    else expect(html).toContain("Creating task");
+    else expect(html).toContain("Draft task");
   }
 });
 
@@ -93,6 +167,6 @@ test.each(["not JSON", JSON.stringify({ task: { id: "fake", title: "Incomplete" 
     expect(html).toContain("invalid task result");
     expect(html).not.toContain("Task created");
     expect(html).not.toContain("data-task-id");
-    expect(html).toContain("Tool details");
+    expect(html).toContain("Output");
   },
 );

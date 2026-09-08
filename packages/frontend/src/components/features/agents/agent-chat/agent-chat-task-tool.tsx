@@ -1,10 +1,11 @@
 import {
   CreateTaskInputSchema,
+  SearchTasksInputSchema,
   createTaskResultSchema,
   searchTasksResultSchema,
   type PublicTaskSummaryTask,
 } from "@openducktor/contracts";
-import { Check, CircleAlert, ListPlus, LoaderCircle, Search } from "lucide-react";
+import type { ZodType } from "zod";
 import { IssueTypeBadge } from "@/components/features/kanban/issue-type-badge";
 import { PriorityBadge } from "@/components/features/kanban/priority-badge";
 import { TaskIdBadge } from "@/components/features/tasks/task-id-badge";
@@ -13,55 +14,80 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { TaskLabelChip } from "@/components/ui/task-label-chip";
 import { statusBadgeClassName, statusLabel } from "@/lib/task-status-presentation";
 import type { ToolMeta } from "./agent-chat-message-card-model.types";
+import { RegularToolMessage } from "./agent-chat-message-card-tool-presenters";
 import { getToolLifecyclePhase } from "./tool-lifecycle";
 
 type TaskTool = "create_task" | "search_tasks";
-type TaskToolResult = { tasks: PublicTaskSummaryTask[]; totalCount: number; hasMore: boolean };
 
-const readTaskToolResult = (tool: TaskTool, output: string | undefined): TaskToolResult | null => {
+const readTaskToolResult = <Result,>(
+  schema: ZodType<Result>,
+  output: string | undefined,
+): Result | null => {
   if (!output) return null;
-  let value: unknown;
   try {
-    value = JSON.parse(output);
+    const result = schema.safeParse(JSON.parse(output));
+    return result.success ? result.data : null;
   } catch {
     return null;
   }
-  if (tool === "create_task") {
-    const result = createTaskResultSchema.safeParse(value);
-    return result.success ? { tasks: [result.data.task], totalCount: 1, hasMore: false } : null;
+};
+
+const taskSearchSummary = (meta: ToolMeta): string => {
+  const input = SearchTasksInputSchema.safeParse(meta.input);
+  const filters: string[] = [];
+  if (input.success) {
+    const { title, status, issueType, priority, tags, limit } = input.data;
+    if (title) filters.push(`title: ${title}`);
+    if (status) filters.push(`status: ${status}`);
+    if (issueType) filters.push(`type: ${issueType}`);
+    if (priority !== undefined) filters.push(`priority: P${priority}`);
+    if (tags) filters.push(`tags: ${tags.join(", ")}`);
+    filters.push(`limit: ${limit}`);
+  } else {
+    filters.push(meta.input ? "Invalid search filters" : "Waiting for filters");
   }
-  const result = searchTasksResultSchema.safeParse(value);
-  return result.success
-    ? {
-        tasks: result.data.results.map((entry) => entry.task),
-        totalCount: result.data.totalCount,
-        hasMore: result.data.hasMore,
-      }
-    : null;
+  const phase = getToolLifecyclePhase(meta);
+  if (phase === "completed") {
+    const result = readTaskToolResult(searchTasksResultSchema, meta.output);
+    if (result) {
+      const { totalCount, results } = result;
+      const count = `${totalCount} ${totalCount === 1 ? "result" : "results"}`;
+      filters.unshift(results.length < totalCount ? `${count}, ${results.length} returned` : count);
+    } else {
+      filters.push("Invalid search result");
+    }
+  }
+  if (phase === "failed") filters.push(meta.error || "Tool failed");
+  if (phase === "cancelled") filters.push("Tool cancelled");
+  return filters.join(" · ");
 };
 
 const TaskResultCard = ({ task }: { task: PublicTaskSummaryTask }) => (
-  <Card className="min-w-0 overflow-hidden" data-task-id={task.id}>
-    <CardHeader className="gap-3 px-4 pt-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <TaskIdBadge taskId={task.id} />
+  <Card className="min-w-0 max-w-2xl overflow-hidden" data-task-id={task.id}>
+    <CardHeader className="gap-1.5 px-4 pt-4">
+      <CardTitle className="break-words">{task.title}</CardTitle>
+      <TaskIdBadge taskId={task.id} />
+    </CardHeader>
+    <CardContent className="flex flex-col gap-3 px-4 py-4">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <IssueTypeBadge issueType={task.issueType} />
+        <PriorityBadge priority={task.priority} />
         <Badge variant="outline" className={statusBadgeClassName(task.status)}>
           {statusLabel(task.status)}
         </Badge>
       </div>
-      <CardTitle className="break-words">{task.title}</CardTitle>
       {task.description && (
-        <CardDescription className="line-clamp-3 whitespace-pre-wrap break-words">
+        <CardDescription className="line-clamp-5 whitespace-pre-wrap break-words">
           {task.description}
         </CardDescription>
       )}
-    </CardHeader>
-    <CardContent className="flex flex-wrap items-center gap-2 px-4 py-4">
-      <IssueTypeBadge issueType={task.issueType} />
-      <PriorityBadge priority={task.priority} />
-      {task.labels.map((label) => (
-        <TaskLabelChip key={label} label={label} truncateLabel />
-      ))}
+      {task.labels.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {task.labels.map((label) => (
+            <TaskLabelChip key={label} label={label} truncateLabel />
+          ))}
+        </div>
+      )}
     </CardContent>
   </Card>
 );
@@ -70,78 +96,48 @@ export const AgentChatTaskTool = ({
   meta,
   tool,
   timeLabel,
+  messageContent,
+  messageTimestamp,
+  sessionWorkingDirectory,
 }: {
   meta: ToolMeta;
   tool: TaskTool;
   timeLabel: string;
+  messageContent: string;
+  messageTimestamp: string;
+  sessionWorkingDirectory?: string | null | undefined;
 }) => {
   const phase = getToolLifecyclePhase(meta);
-  const isActive = phase === "queued" || phase === "executing";
-  const result = phase === "completed" ? readTaskToolResult(tool, meta.output) : null;
-  const invalidResult = phase === "completed" && result === null;
-  const failed = phase === "failed" || invalidResult;
-  const Icon = tool === "create_task" ? ListPlus : Search;
-  const inputTitle = CreateTaskInputSchema.shape.title.safeParse(meta.input?.title);
-  let status = "Task created";
-  if (tool === "search_tasks" && result)
-    status = `${result.totalCount} ${result.totalCount === 1 ? "task" : "tasks"} found`;
-  if (isActive) status = tool === "create_task" ? "Creating task…" : "Searching tasks…";
-  if (phase === "cancelled") status = "Cancelled";
-  if (failed) status = "Failed";
+  const completed = phase === "completed";
+  const created =
+    tool === "create_task" && completed
+      ? readTaskToolResult(createTaskResultSchema, meta.output)
+      : null;
+  const title = CreateTaskInputSchema.shape.title.safeParse(meta.input?.title);
+  let summary = completed ? "Invalid task result" : "Creating task";
+  if (tool === "search_tasks") summary = taskSearchSummary(meta);
+  else if (phase === "failed") summary = meta.error || "Tool failed";
+  else if (phase === "cancelled") summary = "Tool cancelled";
+  else if (created) summary = created.task.title;
+  else if (title.success) summary = title.data;
+
   return (
-    <section aria-label={tool} className="flex min-w-0 max-w-2xl flex-col gap-3 py-2">
-      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <Icon aria-hidden="true" className="size-4" />
-        <span className="font-mono font-medium text-foreground">{tool}</span>
-        <span className="inline-flex items-center gap-1.5" role="status">
-          {isActive && <LoaderCircle aria-hidden="true" className="size-3 animate-spin" />}
-          {result && <Check aria-hidden="true" className="size-3 text-success-muted" />}
-          {failed && <CircleAlert aria-hidden="true" className="size-3 text-destructive" />}
-          {status}
-        </span>
-        {timeLabel && <span className="ml-auto">{timeLabel}</span>}
-      </div>
-      {isActive && (
-        <Card>
-          <CardHeader className="px-4 pt-4">
-            <CardTitle>{inputTitle.success ? inputTitle.data : status}</CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 py-3">
-            <p className="text-xs text-muted-foreground">Waiting for OpenDucktor</p>
-          </CardContent>
-        </Card>
-      )}
-      {result && (
-        <div className="grid min-w-0 gap-3">
-          {result.tasks.map((task) => (
-            <TaskResultCard key={task.id} task={task} />
-          ))}
-        </div>
-      )}
-      {result?.tasks.length === 0 && (
-        <p className="text-sm text-muted-foreground">No tasks match this search.</p>
-      )}
-      {result?.hasMore && (
-        <p className="text-xs text-muted-foreground">
-          Showing {result.tasks.length} of {result.totalCount} tasks. Refine the search to see other
-          results.
-        </p>
-      )}
-      {failed && (
+    <section aria-label={tool} className="flex min-w-0 flex-col gap-2">
+      <RegularToolMessage
+        meta={{ ...meta, preview: summary }}
+        messageContent={messageContent}
+        messageTimestamp={messageTimestamp}
+        timeLabel={timeLabel}
+        sessionWorkingDirectory={sessionWorkingDirectory}
+        displayName={tool}
+      />
+      {created && <TaskResultCard task={created.task} />}
+      {tool === "create_task" && completed && !created && (
         <p role="alert" className="text-sm text-destructive">
-          {invalidResult
-            ? "OpenDucktor returned an invalid task result. Expand tool details to inspect the response."
-            : meta.error || "The task tool failed. Expand tool details to inspect the response."}
+          OpenDucktor returned an invalid task result. Expand the tool output to inspect the
+          response.
         </p>
       )}
-      <details className="text-xs text-muted-foreground">
-        <summary className="w-fit cursor-pointer rounded-sm hover:text-foreground focus-visible:outline-ring">
-          Tool details
-        </summary>
-        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-muted p-3">
-          {JSON.stringify({ input: meta.input, output: meta.output, error: meta.error }, null, 2)}
-        </pre>
-      </details>
     </section>
   );
 };

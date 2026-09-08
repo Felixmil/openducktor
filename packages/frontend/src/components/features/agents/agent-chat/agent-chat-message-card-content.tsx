@@ -766,7 +766,14 @@ export const MessageBody = ({
     }
     if (toolCallPresentation.kind === "task") {
       return (
-        <AgentChatTaskTool meta={meta} tool={toolCallPresentation.taskTool} timeLabel={timeLabel} />
+        <AgentChatTaskTool
+          meta={meta}
+          tool={toolCallPresentation.taskTool}
+          timeLabel={timeLabel}
+          messageContent={message.content}
+          messageTimestamp={message.timestamp}
+          sessionWorkingDirectory={sessionWorkingDirectory}
+        />
       );
     }
     return (
