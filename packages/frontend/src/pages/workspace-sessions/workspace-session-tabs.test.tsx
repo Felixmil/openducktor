@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import type { WorkspaceSession, WorkspaceSessionRefInput } from "@openducktor/contracts";
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { act } from "react";
-import { Link, MemoryRouter } from "react-router";
+import { Link, MemoryRouter, useLocation, useNavigate } from "react-router";
 import { QueryProvider } from "@/lib/query-provider";
 import { configureShellBridge, createUnavailableShellBridge } from "@/lib/shell-bridge";
 import { createAgentSessionsStore } from "@/state/agent-sessions-store";
@@ -60,7 +60,23 @@ test("a durable-list failure is an error rather than an empty Workspace and Retr
   }
 });
 
-function renderTabs(runningId?: string) {
+function RouteControls() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <output data-testid="session-url">{location.pathname + location.search}</output>
+      <button type="button" onClick={() => navigate(-1)}>
+        Back
+      </button>
+      <button type="button" onClick={() => navigate(1)}>
+        Forward
+      </button>
+    </>
+  );
+}
+
+function renderTabs(runningId?: string, initialEntry = "/workspace-sessions") {
   const store = createAgentSessionsStore("/repo");
   if (runningId) {
     store.replaceSession(
@@ -76,7 +92,8 @@ function renderTabs(runningId?: string) {
     );
   }
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <RouteControls />
       <Link to="/workspace-sessions?session=Second">Open second chat</Link>
       <QueryProvider useIsolatedClient>
         <ActiveWorkspaceContext
@@ -101,6 +118,121 @@ function renderTabs(runningId?: string) {
     </MemoryRouter>,
   );
 }
+
+test("tab selection survives reload and Back/Forward without refetching workspace data", async () => {
+  let listReads = 0;
+  let settingsReads = 0;
+  configureShellBridge(
+    createShellBridgeFixture({
+      client: {
+        workspaceSessionListActive: async () => {
+          listReads += 1;
+          return [sessionRecord("First"), sessionRecord("Second")];
+        },
+        workspaceGetSettingsSnapshot: () => {
+          settingsReads += 1;
+          return new Promise(() => {});
+        },
+      },
+    }),
+  );
+  let view = renderTabs(undefined, "/workspace-sessions?keep=value");
+  try {
+    const first = await view.findByRole("tab", { name: /First/ }, { timeout: 800 });
+    const second = view.getByRole("tab", { name: /Second/ });
+    fireEvent.mouseDown(second, { button: 0, ctrlKey: false });
+    expect(second.getAttribute("aria-selected")).toBe("true");
+    await waitFor(
+      () =>
+        expect(view.getByTestId("session-url").textContent).toBe(
+          "/workspace-sessions?keep=value&session=Second",
+        ),
+      { timeout: 800 },
+    );
+    fireEvent.click(view.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(first.getAttribute("aria-selected")).toBe("true"), { timeout: 800 });
+    fireEvent.click(view.getByRole("button", { name: "Forward" }));
+    await waitFor(() => expect(second.getAttribute("aria-selected")).toBe("true"), {
+      timeout: 800,
+    });
+    expect(listReads).toBe(1);
+    expect(settingsReads).toBe(1);
+    const reloadUrl = view.getByTestId("session-url").textContent ?? "";
+    view.unmount();
+    view = renderTabs(undefined, reloadUrl);
+    const restored = await view.findByRole("tab", { name: /Second/ }, { timeout: 800 });
+    expect(restored.getAttribute("aria-selected")).toBe("true");
+  } finally {
+    view.unmount();
+    configureShellBridge(createUnavailableShellBridge());
+  }
+});
+
+test("keeps an explicit session URL while the initial list is pending", async () => {
+  let resolveList!: (records: WorkspaceSession[]) => void;
+  configureShellBridge(
+    createShellBridgeFixture({
+      client: {
+        workspaceSessionListActive: () =>
+          new Promise((resolve) => {
+            resolveList = resolve;
+          }),
+        workspaceGetSettingsSnapshot: () => new Promise(() => {}),
+      },
+    }),
+  );
+  const view = renderTabs(undefined, "/workspace-sessions?session=Second");
+  try {
+    await view.findByText("Loading Workspace Sessions…", {}, { timeout: 800 });
+    expect(view.getByTestId("session-url").textContent).toBe("/workspace-sessions?session=Second");
+    await act(async () => {
+      resolveList([sessionRecord("First"), sessionRecord("Second")]);
+    });
+    const selected = await view.findByRole("tab", { name: /Second/ }, { timeout: 800 });
+    expect(selected.getAttribute("aria-selected")).toBe("true");
+    expect(view.getByTestId("session-url").textContent).toBe("/workspace-sessions?session=Second");
+  } finally {
+    view.unmount();
+    configureShellBridge(createUnavailableShellBridge());
+  }
+});
+
+test("replaces a missing session URL and clears it after the final archive", async () => {
+  configureShellBridge(
+    createShellBridgeFixture({
+      client: {
+        workspaceSessionListActive: async () => [sessionRecord("First")],
+        workspaceGetSettingsSnapshot: () => new Promise(() => {}),
+        workspaceSessionArchive: async () => ({ ...sessionRecord("First"), archivedAt: 2000 }),
+      },
+    }),
+  );
+  const view = renderTabs(undefined, "/workspace-sessions?session=Missing&keep=value");
+  try {
+    await view.findByRole("tab", { name: /First/ }, { timeout: 800 });
+    await waitFor(
+      () =>
+        expect(view.getByTestId("session-url").textContent).toBe(
+          "/workspace-sessions?session=First&keep=value",
+        ),
+      { timeout: 800 },
+    );
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Archive First" }));
+    });
+    await view.findByText("No active sessions.", {}, { timeout: 800 });
+    await waitFor(
+      () =>
+        expect(view.getByTestId("session-url").textContent).toBe("/workspace-sessions?keep=value"),
+      { timeout: 800 },
+    );
+    fireEvent.click(view.getByRole("button", { name: "Back" }));
+    expect(view.getByTestId("session-url").textContent).toBe("/workspace-sessions?keep=value");
+  } finally {
+    view.unmount();
+    configureShellBridge(createUnavailableShellBridge());
+  }
+});
 
 test("an activity link selects its chat while the page is already open", async () => {
   configureShellBridge(

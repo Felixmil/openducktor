@@ -3,7 +3,7 @@ import { HostInvokeError } from "@openducktor/host-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, GitBranch, History, LoaderCircle, MessageCirclePlus, Plus } from "lucide-react";
 import { type ReactElement, useEffect, useState } from "react";
-import { useLocation, useSearchParams } from "react-router";
+import { useLocation, useNavigationType, useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -47,6 +47,7 @@ import { WorkspaceSessionCreateDialog } from "./workspace-session-create-dialog"
 import { WorkspaceSessionHistoryDialog } from "./workspace-session-history-dialog";
 import { WorkspaceSessionTitleInput } from "./workspace-session-title-input";
 import { useMountedRef } from "./use-mounted-ref";
+import { useWorkspaceSessionNavigation } from "./use-workspace-session-navigation";
 
 function WorkspaceSessionTab({
   record,
@@ -103,27 +104,26 @@ function WorkspaceSessions({ workspace }: WorkspaceSessionsProps): ReactElement 
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
   const location = useLocation();
+  const navigationType = useNavigationType();
+  const { sessionId, creating, updateNavigation } = useWorkspaceSessionNavigation({
+    locationKey: location.key,
+    navigationType,
+    searchParams: params,
+    setSearchParams: setParams,
+  });
   const records = useQuery(workspaceSessionListQueryOptions(workspace.workspaceId));
   const settings = useQuery(settingsSnapshotQueryOptions());
-  const [selectedId, setSelectedId] = useState<string | null | undefined>(
-    () => params.get("session") ?? undefined,
-  );
-  const requestedSessionId = params.get("session");
-  useEffect(() => {
-    if (requestedSessionId) setSelectedId(requestedSessionId);
-  }, [requestedSessionId, location.key]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [archiveTarget, setArchiveTarget] = useState<WorkspaceSession | null>(null);
   const { sessionReadModelLoadState, reloadSessionReadModel } = useAgentSessionReadModelState();
   const mounted = useMountedRef();
-  if (
-    records.data &&
-    (selectedId === undefined ||
-      (selectedId !== null && !records.data.some((record) => record.id === selectedId)))
-  ) {
-    setSelectedId(records.data[0]?.id ?? null);
-  }
-  const selected = records.data?.find((record) => record.id === selectedId) ?? null;
+  const selected =
+    records.data?.find((record) => record.id === sessionId) ??
+    (sessionId === null ? null : (records.data?.[0] ?? null));
+  const selectedId = selected?.id ?? null;
+  useEffect(() => {
+    if (records.data && sessionId !== selectedId) updateNavigation({ sessionId: selectedId });
+  }, [records.data, selectedId, sessionId, updateNavigation]);
   const archive = useMutation({
     mutationFn: (input: { sessionId: string; confirmStop: boolean }) =>
       host.workspaceSessionArchive({ workspaceId: workspace.workspaceId, ...input }),
@@ -132,7 +132,9 @@ function WorkspaceSessions({ workspace }: WorkspaceSessionsProps): ReactElement 
       if (!mounted.current) return;
       setArchiveTarget(null);
       if (selectedId === record.id)
-        setSelectedId(records.data?.find((entry) => entry.id !== record.id)?.id ?? null);
+        updateNavigation({
+          sessionId: records.data?.find((entry) => entry.id !== record.id)?.id ?? null,
+        });
     },
     onError: (cause, input) => {
       if (
@@ -146,10 +148,7 @@ function WorkspaceSessions({ workspace }: WorkspaceSessionsProps): ReactElement 
     },
   });
   const setCreating = (open: boolean) => {
-    const next = new URLSearchParams(params);
-    if (open) next.set("create", "session");
-    else next.delete("create");
-    setParams(next, { replace: true });
+    updateNavigation({ creating: open });
   };
   if (records.isPending)
     return (
@@ -171,7 +170,7 @@ function WorkspaceSessions({ workspace }: WorkspaceSessionsProps): ReactElement 
   return (
     <Tabs
       value={selectedId ?? ""}
-      onValueChange={setSelectedId}
+      onValueChange={(sessionId) => updateNavigation({ sessionId }, false)}
       className="h-full min-h-0 min-w-0 gap-0 overflow-hidden"
     >
       <StudioTabStrip
@@ -295,14 +294,13 @@ function WorkspaceSessions({ workspace }: WorkspaceSessionsProps): ReactElement 
           onClose={() => setHistoryOpen(false)}
         />
       )}
-      {params.get("create") === "session" && (
+      {creating && (
         <WorkspaceSessionCreateDialog
           workspace={workspace}
           onClose={() => setCreating(false)}
           onCreated={(record) => {
             if (mounted.current) {
-              setSelectedId(record.id);
-              setCreating(false);
+              updateNavigation({ sessionId: record.id, creating: false });
             }
           }}
         />
