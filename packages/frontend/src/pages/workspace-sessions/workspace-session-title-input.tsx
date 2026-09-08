@@ -1,18 +1,23 @@
-import type { WorkspaceSession } from "@openducktor/contracts";
+import {
+  WORKSPACE_SESSION_MANUAL_TITLE_LIMIT,
+  type WorkspaceSession,
+} from "@openducktor/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { type ReactElement, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { errorMessage } from "@/lib/errors";
 import { host } from "@/state/operations/host";
 import { updateWorkspaceSessionQueries } from "@/state/queries/workspace-sessions";
 
+type WorkspaceSessionTitleInputProps = {
+  workspaceId: string;
+  record: WorkspaceSession;
+};
+
 export function WorkspaceSessionTitleInput({
   workspaceId,
   record,
-}: {
-  workspaceId: string;
-  record: WorkspaceSession;
-}) {
+}: WorkspaceSessionTitleInputProps): ReactElement {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState(record.manualTitle ?? "");
   const rename = useMutation({
@@ -26,7 +31,7 @@ export function WorkspaceSessionTitleInput({
         aria-label="Session title"
         value={draft}
         placeholder={record.generatedTitle ?? "Untitled session"}
-        maxLength={120}
+        maxLength={WORKSPACE_SESSION_MANUAL_TITLE_LIMIT}
         disabled={rename.isPending}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={() => {

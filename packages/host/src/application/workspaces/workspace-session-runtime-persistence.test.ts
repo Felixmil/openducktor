@@ -313,6 +313,39 @@ describe("Workspace Session persistence through the shared live service", () => 
     expect(h.inputs).toEqual([]);
   });
 
+  test.each(["resume", "send", "read", "model"] as const)(
+    "%s keeps target and archive validation ahead of other session checks",
+    async (operation) => {
+      const h = await setup();
+      const validate = (ref: AgentSessionLiveRef) => {
+        switch (operation) {
+          case "resume":
+            return h.persistence.prepareResume({ ...ref, sessionScope: { kind: "repository" } });
+          case "send":
+            return h.persistence.prepareSend({
+              ...ref,
+              sessionScope: { kind: "repository" },
+              parts: [{ kind: "text", text: "Prompt" }],
+            });
+          case "read":
+            return h.persistence.validateRef(ref);
+          case "model":
+            return h.persistence.validateModelUpdate({ ...ref, model: null });
+        }
+      };
+      await expect(
+        Effect.runPromise(validate({ ...h.ref, workingDirectory: "/wrong" })),
+      ).rejects.toThrow("does not match");
+      h.state.registered = false;
+      await expect(Effect.runPromise(validate(h.ref))).rejects.toThrow("not a registered worktree");
+      await Effect.runPromise(h.store.archive({ ...h.storeRef, archivedAt: 1 }));
+      await expect(Effect.runPromise(validate(h.ref))).rejects.toThrow("Restore");
+      await Effect.runPromise(validate({ ...h.ref, externalSessionId: "unknown" }));
+      expect(h.inputs).toEqual([]);
+      expect(h.updates).toEqual([]);
+    },
+  );
+
   test("does not import unknown runtime sessions", async () => {
     const h = await setup();
     const unknown = { ...h.ref, externalSessionId: "unknown" };

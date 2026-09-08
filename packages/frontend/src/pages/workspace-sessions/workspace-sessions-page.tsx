@@ -2,7 +2,7 @@ import type { WorkspaceSession } from "@openducktor/contracts";
 import { HostInvokeError } from "@openducktor/host-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, GitBranch, History, LoaderCircle, MessageCirclePlus, Plus } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type ReactElement, useEffect, useState } from "react";
 import { useLocation, useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import {
@@ -46,6 +46,7 @@ import { WorkspaceSessionChat } from "./workspace-session-chat";
 import { WorkspaceSessionCreateDialog } from "./workspace-session-create-dialog";
 import { WorkspaceSessionHistoryDialog } from "./workspace-session-history-dialog";
 import { WorkspaceSessionTitleInput } from "./workspace-session-title-input";
+import { useMountedRef } from "./use-mounted-ref";
 
 function WorkspaceSessionTab({
   record,
@@ -96,7 +97,9 @@ function WorkspaceSessionTab({
   );
 }
 
-function WorkspaceSessions({ workspace }: { workspace: ActiveWorkspace }) {
+type WorkspaceSessionsProps = { workspace: ActiveWorkspace };
+
+function WorkspaceSessions({ workspace }: WorkspaceSessionsProps): ReactElement {
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
   const location = useLocation();
@@ -112,13 +115,7 @@ function WorkspaceSessions({ workspace }: { workspace: ActiveWorkspace }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [archiveTarget, setArchiveTarget] = useState<WorkspaceSession | null>(null);
   const { sessionReadModelLoadState, reloadSessionReadModel } = useAgentSessionReadModelState();
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  const mounted = useMountedRef();
   if (
     records.data &&
     (selectedId === undefined ||

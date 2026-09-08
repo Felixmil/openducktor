@@ -1,8 +1,12 @@
-import type { WorkspaceSession, WorkspaceSessionCreateInput } from "@openducktor/contracts";
+import {
+  WORKSPACE_SESSION_MANUAL_TITLE_LIMIT,
+  type WorkspaceSession,
+  type WorkspaceSessionCreateInput,
+} from "@openducktor/contracts";
 import { HostInvokeError } from "@openducktor/host-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Folder, GitBranch, LoaderCircle } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type ReactElement, useState } from "react";
 import { ModelPicker } from "@/components/features/agents/model-picker";
 import { SettingsModal } from "@/components/features/settings/settings-modal";
 import { Button } from "@/components/ui/button";
@@ -27,16 +31,19 @@ import {
 } from "@/state/queries/workspace-sessions";
 import type { ActiveWorkspace } from "@/types/state-slices";
 import { useWorkspaceSessionModelPicker } from "./use-workspace-session-model-picker";
+import { useMountedRef } from "./use-mounted-ref";
+
+type WorkspaceSessionCreateDialogProps = {
+  workspace: ActiveWorkspace;
+  onClose: () => void;
+  onCreated: (session: WorkspaceSession) => void;
+};
 
 export function WorkspaceSessionCreateDialog({
   workspace,
   onClose,
   onCreated,
-}: {
-  workspace: ActiveWorkspace;
-  onClose: () => void;
-  onCreated: (session: WorkspaceSession) => void;
-}) {
+}: WorkspaceSessionCreateDialogProps): ReactElement {
   const queryClient = useQueryClient();
   const roles = useQuery(customAgentRolesQueryOptions());
   const model = useWorkspaceSessionModelPicker(workspace.repoPath);
@@ -45,13 +52,7 @@ export function WorkspaceSessionCreateDialog({
   const [location, setLocation] =
     useState<WorkspaceSessionCreateInput["location"]>("local_repo_root");
   const [confirmChanges, setConfirmChanges] = useState(false);
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  const mounted = useMountedRef();
   const create = useMutation({
     mutationFn: (input: WorkspaceSessionCreateInput) => host.workspaceSessionCreate(input),
     onSuccess: (result, input) => {
@@ -115,7 +116,7 @@ export function WorkspaceSessionCreateDialog({
                   value={name}
                   onChange={(event) => setName(event.target.value)}
                   placeholder="What are you working on?"
-                  maxLength={120}
+                  maxLength={WORKSPACE_SESSION_MANUAL_TITLE_LIMIT}
                 />
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

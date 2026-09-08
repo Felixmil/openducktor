@@ -84,15 +84,25 @@ export const createWorkspaceSessionRuntimePersistence = ({
             field: "sessionId",
           }),
         );
+  const findActive = (runtimeRef: AgentSessionLiveRef) =>
+    Effect.gen(function* () {
+      const known = yield* find(runtimeRef);
+      if (!known) return null;
+      yield* requireActive(known.session);
+      yield* validateWorkspaceSessionTarget(
+        { git },
+        runtimeRef.repoPath,
+        known.session.executionTarget,
+      );
+      return known;
+    });
   const prepare = <Input extends AgentSessionControlResumeInput | AgentSessionControlSendInput>(
     input: Input,
   ): Effect.Effect<Input, HostError> =>
     Effect.gen(function* () {
       if (input.sessionScope.kind !== "repository") return input;
-      const known = yield* find(input);
+      const known = yield* findActive(input);
       if (!known) return input;
-      yield* requireActive(known.session);
-      yield* validateWorkspaceSessionTarget({ git }, input.repoPath, known.session.executionTarget);
       const prepared = {
         ...input,
         systemPrompt: known.session.roleSnapshot?.systemPrompt ?? "",
@@ -158,14 +168,7 @@ export const createWorkspaceSessionRuntimePersistence = ({
     });
   const validateRef = (runtimeRef: AgentSessionLiveRef) =>
     Effect.gen(function* () {
-      const known = yield* find(runtimeRef);
-      if (!known) return;
-      yield* requireActive(known.session);
-      yield* validateWorkspaceSessionTarget(
-        { git },
-        runtimeRef.repoPath,
-        known.session.executionTarget,
-      );
+      yield* findActive(runtimeRef);
     });
   return {
     prepareResume: prepare,
@@ -173,14 +176,8 @@ export const createWorkspaceSessionRuntimePersistence = ({
     validateRef,
     validateModelUpdate: (input) =>
       Effect.gen(function* () {
-        const known = yield* find(input);
+        const known = yield* findActive(input);
         if (!known) return;
-        yield* requireActive(known.session);
-        yield* validateWorkspaceSessionTarget(
-          { git },
-          input.repoPath,
-          known.session.executionTarget,
-        );
         if (input.model === null)
           return yield* Effect.fail(
             new HostValidationError({

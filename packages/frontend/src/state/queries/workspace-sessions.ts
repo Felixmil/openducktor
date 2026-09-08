@@ -1,4 +1,4 @@
-import type { WorkspaceSession } from "@openducktor/contracts";
+import { WORKSPACE_SESSION_ARCHIVE_LIMIT, type WorkspaceSession } from "@openducktor/contracts";
 import { type QueryClient, queryOptions } from "@tanstack/react-query";
 import { host } from "../operations/host";
 
@@ -46,7 +46,7 @@ export const updateWorkspaceSessionQueries = (
           ? (right.archivedAt ?? 0) - (left.archivedAt ?? 0)
           : right.updatedAt - left.updatedAt,
       );
-      return archived ? next.slice(0, 100) : next;
+      return archived ? next.slice(0, WORKSPACE_SESSION_ARCHIVE_LIMIT) : next;
     });
   }
 };

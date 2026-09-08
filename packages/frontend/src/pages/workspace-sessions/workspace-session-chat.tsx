@@ -1,6 +1,6 @@
 import type { ChatSettings, ReusablePrompt, WorkspaceSession } from "@openducktor/contracts";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactElement, useMemo, useState } from "react";
 import { AgentChatSurface } from "@/components/features/agents/agent-chat/agent-chat";
 import { deriveAgentChatReadiness } from "@/components/features/agents/agent-chat/agent-chat-readiness";
 import { resolveAgentChatRuntimePresentation } from "@/components/features/agents/agent-chat/agent-chat-runtime-presentation";
@@ -45,18 +45,21 @@ import {
 import { runtimeCatalogQueryKeys } from "@/state/queries/runtime-catalog";
 import type { ActiveWorkspace } from "@/types/state-slices";
 import { useWorkspaceSessionModelPicker } from "./use-workspace-session-model-picker";
+import { useMountedRef } from "./use-mounted-ref";
+
+type WorkspaceSessionChatProps = {
+  workspace: ActiveWorkspace;
+  record: WorkspaceSession;
+  chatSettings: ChatSettings;
+  reusablePrompts: ReusablePrompt[];
+};
 
 export function WorkspaceSessionChat({
   workspace,
   record,
   chatSettings,
   reusablePrompts,
-}: {
-  workspace: ActiveWorkspace;
-  record: WorkspaceSession;
-  chatSettings: ChatSettings;
-  reusablePrompts: ReusablePrompt[];
-}) {
+}: WorkspaceSessionChatProps): ReactElement {
   const identity = useMemo(() => workspaceSessionIdentity(record), [record]);
   const sessionKey = agentSessionIdentityKey(identity);
   const session = useAgentSession(identity);
@@ -187,13 +190,7 @@ export function WorkspaceSessionChat({
   });
   const [isSending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  const mounted = useMountedRef();
   const transcript = resolveAgentChatTranscriptPresentation({
     sessionKey,
     session: session
