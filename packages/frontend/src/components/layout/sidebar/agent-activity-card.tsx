@@ -25,16 +25,20 @@ function SessionList({
       {sessions.map((session) => (
         <li key={agentSessionIdentityKey(session)}>
           <Link
-            to={buildAgentStudioHref({
-              taskId: session.taskId,
-              sessionExternalId: session.externalSessionId,
-              role: session.role,
-            })}
+            to={
+              session.workspaceSessionId !== undefined
+                ? `/workspace-sessions?session=${encodeURIComponent(session.workspaceSessionId)}`
+                : buildAgentStudioHref({
+                    taskId: session.taskId,
+                    sessionExternalId: session.externalSessionId,
+                    role: session.role,
+                  })
+            }
             className="block rounded-md border border-border bg-card px-2 py-1.5 hover:border-input hover:bg-accent"
           >
             <p className="truncate text-xs font-medium text-foreground">{session.taskTitle}</p>
             <p className={`truncate text-[11px] ${accentClassName}`}>
-              {session.role.toUpperCase()}
+              {session.role?.toUpperCase() ?? "CHAT"}
               {" · "}
               {formatAgentSessionActivityStateLabel(session.activityState)}
             </p>

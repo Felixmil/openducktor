@@ -23,7 +23,10 @@ export type AgentSessionSummary = AgentSessionIdentity &
 export type AgentActivitySessionsSnapshot = {
   workspaceRepoPath: string | null;
   sessions: AgentSessionSummary[];
+  repositorySessions: RepositoryAgentSessionSummary[];
 };
+
+export type RepositoryAgentSessionSummary = Omit<AgentSessionSummary, "taskId" | "role">;
 
 const sortByStartedAtDesc = (left: AgentSessionState, right: AgentSessionState): number =>
   left.startedAt > right.startedAt ? -1 : left.startedAt < right.startedAt ? 1 : 0;
@@ -85,10 +88,51 @@ const reuseArrayWhenItemsMatch = <T>(previous: T[], next: T[]): T[] => {
 const createActivitySnapshot = (
   workspaceRepoPath: string | null,
   sessions: AgentSessionSummary[],
+  repositorySessions: RepositoryAgentSessionSummary[] = [],
 ): AgentActivitySessionsSnapshot => ({
   workspaceRepoPath,
   sessions,
+  repositorySessions,
 });
+
+const repositoryActivitySummaries = (
+  sessions: AgentSessionState[],
+  previous: RepositoryAgentSessionSummary[],
+): RepositoryAgentSessionSummary[] => {
+  const previousByIdentity = new Map(
+    previous.map((session) => [agentSessionIdentityKey(session), session]),
+  );
+  const next = sessions.flatMap((session): RepositoryAgentSessionSummary[] => {
+    if (
+      session.sessionAssociation.kind !== "repository" ||
+      session.liveParentExternalSessionId !== undefined
+    )
+      return [];
+    const summary: RepositoryAgentSessionSummary = {
+      ...toAgentSessionIdentity(session),
+      startedAt: session.startedAt,
+      selectedModel: session.selectedModel,
+      activityState: getAgentSessionActivityStateFromSession(session),
+      pendingApprovalCount: session.pendingApprovals.length,
+      pendingQuestionCount: session.pendingQuestions.length,
+    };
+    if (session.title) summary.title = session.title;
+    const prior = previousByIdentity.get(agentSessionIdentityKey(session));
+    if (
+      prior &&
+      prior.title === summary.title &&
+      prior.startedAt === summary.startedAt &&
+      prior.selectedModel === summary.selectedModel &&
+      prior.activityState === summary.activityState &&
+      prior.pendingApprovalCount === summary.pendingApprovalCount &&
+      prior.pendingQuestionCount === summary.pendingQuestionCount &&
+      prior.workingDirectory === summary.workingDirectory
+    )
+      return [prior];
+    return [summary];
+  });
+  return reuseArrayWhenItemsMatch(previous, next);
+};
 
 export const createEmptyAgentActivitySnapshot = (
   workspaceRepoPath: string | null,
@@ -118,8 +162,11 @@ export const createAgentActivitySnapshot = ({
       : [nextSummary];
   });
   const activitySessions = reuseArrayWhenItemsMatch(previous.sessions, nextActivitySessions);
+  const repositorySessions = repositoryActivitySummaries(sessions, previous.repositorySessions);
 
-  return previous.workspaceRepoPath === workspaceRepoPath && previous.sessions === activitySessions
+  return previous.workspaceRepoPath === workspaceRepoPath &&
+    previous.sessions === activitySessions &&
+    previous.repositorySessions === repositorySessions
     ? previous
-    : createActivitySnapshot(workspaceRepoPath, activitySessions);
+    : createActivitySnapshot(workspaceRepoPath, activitySessions, repositorySessions);
 };

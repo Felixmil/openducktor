@@ -9,12 +9,13 @@ type VisibleAgentActivityState = Extract<
 >;
 
 export type AgentActivitySessionItem = AgentSessionIdentity & {
-  taskId: string;
   taskTitle: string;
-  role: AgentSessionSummary["role"];
   activityState: VisibleAgentActivityState;
   startedAt: string;
-};
+} & (
+    | { taskId: string; role: AgentSessionSummary["role"]; workspaceSessionId?: never }
+    | { taskId: null; role: null; workspaceSessionId: string }
+  );
 
 export type AgentActivitySummary = {
   activeSessionCount: number;

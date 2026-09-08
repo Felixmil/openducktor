@@ -27,7 +27,7 @@ const findFinalExactAction = (rules: PermissionRule[], permission: string): stri
 };
 
 describe("workflow-tool-permissions", () => {
-  test("asks for approval across the complete trusted ODT catalog for repository scope", () => {
+  test("allows the complete trusted ODT catalog for repository scope without approval", () => {
     const rules = buildRepositoryScopedPermissionRules(OPENCODE_RUNTIME_DESCRIPTOR);
 
     expect(rules).toContainEqual({ permission: "openducktor_*", pattern: "*", action: "deny" });
@@ -40,14 +40,14 @@ describe("workflow-tool-permissions", () => {
     expect(rules).not.toContainEqual({ permission: "edit", pattern: "*", action: "deny" });
     for (const toolName of ODT_MCP_TOOL_NAMES) {
       for (const permission of toOpencodeExposedOdtToolIds(toolName)) {
-        expect(findFinalExactAction(rules, permission)).toBe("ask");
+        expect(findFinalExactAction(rules, permission)).toBe("allow");
       }
     }
-    expect(findFinalExactAction(rules, "odt_create_task")).toBe("ask");
-    expect(findFinalExactAction(rules, "odt_search_tasks")).toBe("ask");
+    expect(findFinalExactAction(rules, "odt_create_task")).toBe("allow");
+    expect(findFinalExactAction(rules, "odt_search_tasks")).toBe("allow");
   });
 
-  test("asks for approval for runtime-provided repository ODT aliases", () => {
+  test("allows runtime-provided repository ODT aliases without approval", () => {
     const rules = buildRepositoryScopedPermissionRules({
       ...OPENCODE_RUNTIME_DESCRIPTOR,
       workflowToolAliasesByCanonical: {
@@ -56,7 +56,7 @@ describe("workflow-tool-permissions", () => {
       },
     });
 
-    expect(findFinalExactAction(rules, "runtime_plan_alias")).toBe("ask");
+    expect(findFinalExactAction(rules, "runtime_plan_alias")).toBe("allow");
   });
 
   test("keeps approval prompts out of every workflow role policy", () => {

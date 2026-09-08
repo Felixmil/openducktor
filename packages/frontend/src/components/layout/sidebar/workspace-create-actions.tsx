@@ -15,22 +15,30 @@ export default function WorkspaceCreateActions({ compact = false }: { compact?: 
       <div className="flex flex-col gap-1 border-t border-sidebar-border pt-3">
         <Button
           variant="ghost"
-          size={compact ? "icon" : "sm"}
-          className={compact ? "size-9" : "w-full justify-start px-3 text-sidebar-foreground"}
-          aria-label="Create task"
-          title="Create task"
+          size={compact ? "icon" : "default"}
+          className={
+            compact
+              ? "size-9"
+              : "w-full justify-start gap-2 rounded-lg px-3 text-sm font-medium text-sidebar-foreground"
+          }
+          aria-label="New task"
+          title="New task"
           disabled={!workspace}
           onClick={() => setTaskOpen(true)}
         >
           <ListPlus aria-hidden="true" />
-          {!compact && "Create task"}
+          {!compact && "New task"}
         </Button>
         <Button
           variant="ghost"
-          size={compact ? "icon" : "sm"}
-          className={compact ? "size-9" : "w-full justify-start px-3 text-sidebar-foreground"}
-          aria-label="Start workspace session"
-          title="Start workspace session"
+          size={compact ? "icon" : "default"}
+          className={
+            compact
+              ? "size-9"
+              : "w-full justify-start gap-2 rounded-lg px-3 text-sm font-medium text-sidebar-foreground"
+          }
+          aria-label="New chat"
+          title="New chat"
           disabled={!workspace}
           onClick={() => navigate("/workspace-sessions?create=session")}
         >

@@ -3,7 +3,7 @@ import { HostInvokeError } from "@openducktor/host-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, GitBranch, History, LoaderCircle, MessageCirclePlus, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useLocation, useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -99,11 +99,16 @@ function WorkspaceSessionTab({
 function WorkspaceSessions({ workspace }: { workspace: ActiveWorkspace }) {
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
+  const location = useLocation();
   const records = useQuery(workspaceSessionListQueryOptions(workspace.workspaceId));
   const settings = useQuery(settingsSnapshotQueryOptions());
   const [selectedId, setSelectedId] = useState<string | null | undefined>(
     () => params.get("session") ?? undefined,
   );
+  const requestedSessionId = params.get("session");
+  useEffect(() => {
+    if (requestedSessionId) setSelectedId(requestedSessionId);
+  }, [requestedSessionId, location.key]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [archiveTarget, setArchiveTarget] = useState<WorkspaceSession | null>(null);
   const { sessionReadModelLoadState, reloadSessionReadModel } = useAgentSessionReadModelState();

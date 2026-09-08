@@ -51,7 +51,7 @@ const decideTrustedOdtTool = (
   const sessionAssociation = session.summary.sessionAssociation;
   if (sessionAssociation.kind === "repository") {
     if (toolName && ODT_MCP_TOOL_NAME_SET.has(toolName)) {
-      return { kind: "unmanaged" };
+      return { kind: "allow" };
     }
     return {
       kind: "reject",

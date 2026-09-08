@@ -66,9 +66,11 @@ test.each([false, true])(
       </MemoryRouter>,
     );
     try {
-      fireEvent.click(view.getByRole("button", { name: "Create task" }));
+      const newTask = view.getByRole("button", { name: "New task" });
+      if (!compact) expect(newTask.className).toContain("text-sm");
+      fireEvent.click(newTask);
       expect(view.queryByRole("dialog", { name: "Task creation" }) !== null).toBe(true);
-      fireEvent.click(view.getByRole("button", { name: "Start workspace session" }));
+      fireEvent.click(view.getByRole("button", { name: "New chat" }));
       expect(view.getByLabelText("Current route").textContent).toBe(
         "/workspace-sessions?create=session",
       );

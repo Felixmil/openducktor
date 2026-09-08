@@ -36,6 +36,31 @@ const expectedSessionHref = (session: typeof activeSession | typeof waitingSessi
 };
 
 describe("AgentActivityCard", () => {
+  test("links workspace chats to Chats and labels waiting input", () => {
+    const chat = {
+      ...waitingSession,
+      taskId: null,
+      role: null,
+      workspaceSessionId: "chat /?one",
+      taskTitle: "Plan the release",
+    };
+    const html = renderToStaticMarkup(
+      createElement(
+        MemoryRouter,
+        {},
+        createElement(AgentActivityCard, {
+          activeSessionCount: 0,
+          waitingForInputCount: 1,
+          activeSessions: [],
+          waitingForInputSessions: [chat],
+        }),
+      ),
+    );
+    expect(html).toContain("Plan the release");
+    expect(html).toContain("CHAT · waiting input");
+    expect(html).toContain('href="/workspace-sessions?session=chat%20%2F%3Fone"');
+    expect(html).not.toContain('href="/agents?');
+  });
   test("renders active/waiting counters and session deep links", () => {
     const html = renderToStaticMarkup(
       createElement(

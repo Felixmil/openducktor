@@ -89,7 +89,10 @@ const WorkspaceAppShell = memo(function WorkspaceAppShell(): ReactElement {
   }
   const diagnosticsAutoOpenedByRepo = diagnosticsAutoOpenedByRepoRef.current;
   const hasActiveWorkspace = activeWorkspace !== null;
-  const agentActivity = useShellAgentActivity(activeWorkspace?.repoPath ?? null);
+  const agentActivity = useShellAgentActivity(
+    activeWorkspace?.repoPath ?? null,
+    activeWorkspace?.workspaceId ?? null,
+  );
 
   useEffect(() => {
     if (hasActiveWorkspace) {

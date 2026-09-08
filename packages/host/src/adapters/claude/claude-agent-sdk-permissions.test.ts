@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentEvent } from "@openducktor/core";
 import { claudeSubagentEventSession } from "./claude-agent-sdk-event-session";
+import { authorizeClaudeToolUse } from "./claude-agent-sdk-permissions";
+import { createClaudePreToolUseHook } from "./claude-agent-sdk-pre-tool-use-hook";
 import {
   createClaudeCanUseTool,
   createClaudeRepositoryPermissionTestSession,
@@ -18,6 +20,31 @@ const addNestedSubagent = (session: ClaudeSessionContext): void => {
 };
 
 describe("createClaudeCanUseTool", () => {
+  test.each(["odt_create_task", "odt_search_tasks"])(
+    "PreToolUse auto-allows trusted %s without approving other servers",
+    async (tool) => {
+      const session = createClaudeRepositoryPermissionTestSession();
+      const hook = createClaudePreToolUseHook({ session });
+      const input = {
+        hook_event_name: "PreToolUse" as const,
+        session_id: "session-1",
+        transcript_path: "/tmp/transcript",
+        cwd: "/repo",
+        tool_name: `mcp__openducktor__${tool}`,
+        tool_input: {},
+        tool_use_id: "call-1",
+      };
+      expect(await hook(input, "call-1", { signal: new AbortController().signal })).toMatchObject({
+        hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" },
+      });
+      expect(
+        await hook({ ...input, tool_name: `mcp__other__${tool}` }, "call-1", {
+          signal: new AbortController().signal,
+        }),
+      ).toEqual({});
+      expect(session.pendingApprovals.size).toBe(0);
+    },
+  );
   test("rejects non-JSON tool input before publishing an approval", async () => {
     const events: AgentEvent[] = [];
     const session = createSession();
@@ -46,7 +73,7 @@ describe("createClaudeCanUseTool", () => {
     expect(session.pendingApprovals.size).toBe(0);
   });
 
-  test("requests approval for repository task creation as a mutating runtime tool", async () => {
+  test("auto-allows trusted repository task creation", async () => {
     const events: AgentEvent[] = [];
     const session = createClaudeRepositoryPermissionTestSession();
     const canUseTool = createClaudeCanUseTool({
@@ -66,24 +93,31 @@ describe("createClaudeCanUseTool", () => {
       },
     );
 
-    expect(events).toEqual([
-      expect.objectContaining({
-        type: "approval_required",
-        requestId: "request-1",
-        requestType: "runtime_tool",
-        mutation: "mutating",
-        tool: {
-          name: "mcp__openducktor__odt_create_task",
-          input: { title: "New task" },
-        },
-      }),
-    ]);
+    // Settle the old behavior so a regression fails without leaving an unresolved promise.
     session.pendingApprovals.get("request-1")?.resolve({ behavior: "allow" });
     await expect(resultPromise).resolves.toEqual({
       behavior: "allow",
       updatedInput: { title: "New task" },
     });
+    expect(events).toEqual([]);
   });
+
+  test.each(["odt_create_task", "odt_search_tasks"])(
+    "authorizes trusted repository %s before SDK permission modes",
+    async (tool) => {
+      const session = createClaudeRepositoryPermissionTestSession();
+      expect(
+        await authorizeClaudeToolUse({
+          session,
+          toolName: `mcp__openducktor__${tool}`,
+          toolInput: {},
+        }),
+      ).toMatchObject({ behavior: "allow", approval: "trusted_odt" });
+      expect(
+        await authorizeClaudeToolUse({ session, toolName: `mcp__other__${tool}`, toolInput: {} }),
+      ).toMatchObject({ behavior: "allow", approval: "interactive" });
+    },
+  );
 
   test("auto-allows repository task search as a read-only runtime tool", async () => {
     const events: AgentEvent[] = [];

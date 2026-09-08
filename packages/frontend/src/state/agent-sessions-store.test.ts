@@ -43,6 +43,63 @@ describe("toAgentSessionSummary", () => {
 });
 
 describe("createAgentSessionsStore session snapshots", () => {
+  test("publishes repository activity and pending input without leaking it into workflow summaries", () => {
+    const store = createAgentSessionsStore("/repo");
+    const session = createAgentSessionFixture({
+      externalSessionId: "chat-1",
+      sessionAssociation: { kind: "repository" },
+      status: "running",
+    });
+    replaceStoreSessions(store, [session]);
+    expect(store.getActivitySnapshot().sessions).toEqual([]);
+    expect(store.getActivitySnapshot().repositorySessions).toMatchObject([
+      { externalSessionId: "chat-1", activityState: "running" },
+    ]);
+    const snapshot = store.getActivitySnapshot();
+    store.updateSession(session, (current) => ({
+      ...current,
+      messages: createSessionMessagesState(current.externalSessionId, [
+        { id: "m1", role: "assistant", content: "Working", timestamp: "now" },
+      ]),
+    }));
+    expect(store.getActivitySnapshot()).toBe(snapshot);
+    store.replaceSession(
+      createAgentSessionFixture({
+        externalSessionId: "child",
+        sessionAssociation: { kind: "repository" },
+        liveParentExternalSessionId: "chat-1",
+        status: "running",
+      }),
+    );
+    expect(store.getActivitySnapshot()).toBe(snapshot);
+    store.updateSession(session, (current) => ({
+      ...current,
+      pendingQuestions: [{ requestId: "q1", questions: [] }],
+    }));
+    expect(store.getActivitySnapshot().repositorySessions).toMatchObject([
+      { externalSessionId: "chat-1", activityState: "waiting_input", pendingQuestionCount: 1 },
+    ]);
+    store.updateSession(session, (current) => ({
+      ...current,
+      pendingQuestions: [],
+      pendingApprovals: [
+        {
+          requestId: "p1",
+          requestType: "permission_grant",
+          title: "Approve",
+          summary: "Approve a command",
+          action: { name: "bash" },
+          mutation: "unknown",
+          supportedReplyOutcomes: ["approve_once", "reject"],
+        },
+      ],
+    }));
+    expect(store.getActivitySnapshot().repositorySessions).toMatchObject([
+      { activityState: "waiting_input", pendingApprovalCount: 1, pendingQuestionCount: 0 },
+    ]);
+    store.resetWorkspace("/other");
+    expect(store.getActivitySnapshot().repositorySessions).toEqual([]);
+  });
   test("updates one session atomically and returns the applied state", () => {
     const store = createAgentSessionsStore();
     const session = createAgentSessionFixture({
@@ -440,6 +497,7 @@ describe("createAgentSessionsStore activity snapshots", () => {
     expect(store.getActivitySnapshot()).toEqual({
       workspaceRepoPath: "/repo-b",
       sessions: [],
+      repositorySessions: [],
     });
   });
 });

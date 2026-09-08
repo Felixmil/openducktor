@@ -1,4 +1,7 @@
 import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { workspaceSessionListQueryOptions } from "./workspace-sessions";
+import { summarizeWorkspaceChatActivity } from "../read-models/workspace-chat-activity";
 import type { AgentSessionSummary } from "@/state/agent-sessions-store";
 import {
   type AgentActivitySummary,
@@ -60,8 +63,13 @@ const selectTaskTitlesForActivity = (taskIds: readonly string[]) => {
 
 export const useShellAgentActivity = (
   activeWorkspaceRepoPath: string | null,
+  workspaceId: string | null,
 ): AgentActivitySummary => {
   const activitySnapshot = useAgentActivitySnapshot();
+  const records = useQuery({
+    ...workspaceSessionListQueryOptions(workspaceId ?? ""),
+    enabled: workspaceId !== null,
+  });
   const { tasks } = useTasksState();
   const visibleSessions = useMemo(
     () =>
@@ -80,13 +88,29 @@ export const useShellAgentActivity = (
   const taskTitleById = useMemo(() => selectTaskTitles(tasks), [selectTaskTitles, tasks]);
 
   return useMemo(() => {
-    if (activeWorkspaceRepoPath === null || visibleSessions.length === 0) {
+    if (
+      activeWorkspaceRepoPath === null ||
+      activitySnapshot.workspaceRepoPath !== activeWorkspaceRepoPath
+    ) {
       return EMPTY_AGENT_ACTIVITY_SUMMARY;
     }
 
-    return summarizeAgentActivity({
+    const workflow = summarizeAgentActivity({
       sessions: visibleSessions,
       taskTitleById,
     });
-  }, [activeWorkspaceRepoPath, taskTitleById, visibleSessions]);
+    const chats = summarizeWorkspaceChatActivity(
+      activitySnapshot.repositorySessions,
+      records.data ?? [],
+    );
+    return {
+      activeSessionCount: workflow.activeSessionCount + chats.activeSessionCount,
+      waitingForInputCount: workflow.waitingForInputCount + chats.waitingForInputCount,
+      activeSessions: [...workflow.activeSessions, ...chats.activeSessions],
+      waitingForInputSessions: [
+        ...workflow.waitingForInputSessions,
+        ...chats.waitingForInputSessions,
+      ],
+    };
+  }, [activeWorkspaceRepoPath, taskTitleById, visibleSessions, activitySnapshot, records.data]);
 };

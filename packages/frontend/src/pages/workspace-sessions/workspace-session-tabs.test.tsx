@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import type { WorkspaceSession, WorkspaceSessionRefInput } from "@openducktor/contracts";
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { act } from "react";
-import { MemoryRouter } from "react-router";
+import { Link, MemoryRouter } from "react-router";
 import { QueryProvider } from "@/lib/query-provider";
 import { configureShellBridge, createUnavailableShellBridge } from "@/lib/shell-bridge";
 import { createAgentSessionsStore } from "@/state/agent-sessions-store";
@@ -77,6 +77,7 @@ function renderTabs(runningId?: string) {
   }
   return render(
     <MemoryRouter>
+      <Link to="/workspace-sessions?session=Second">Open second chat</Link>
       <QueryProvider useIsolatedClient>
         <ActiveWorkspaceContext
           value={{
@@ -100,6 +101,36 @@ function renderTabs(runningId?: string) {
     </MemoryRouter>,
   );
 }
+
+test("an activity link selects its chat while the page is already open", async () => {
+  configureShellBridge(
+    createShellBridgeFixture({
+      client: {
+        workspaceSessionListActive: async () => [sessionRecord("First"), sessionRecord("Second")],
+        workspaceGetSettingsSnapshot: () => new Promise(() => {}),
+      },
+    }),
+  );
+  const view = renderTabs();
+  try {
+    const first = await view.findByRole("tab", { name: /First/ }, { timeout: 800 });
+    const second = view.getByRole("tab", { name: /Second/ });
+    expect(first.getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(view.getByRole("link", { name: "Open second chat" }));
+    await waitFor(() => expect(second.getAttribute("aria-selected")).toBe("true"), {
+      timeout: 800,
+    });
+    fireEvent.mouseDown(first, { button: 0, ctrlKey: false });
+    expect(first.getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(view.getByRole("link", { name: "Open second chat" }));
+    await waitFor(() => expect(second.getAttribute("aria-selected")).toBe("true"), {
+      timeout: 800,
+    });
+  } finally {
+    view.unmount();
+    configureShellBridge(createUnavailableShellBridge());
+  }
+});
 
 test("archive targets its tab, restore preserves selection, and the final archive shows the empty state", async () => {
   const first = sessionRecord("First");
