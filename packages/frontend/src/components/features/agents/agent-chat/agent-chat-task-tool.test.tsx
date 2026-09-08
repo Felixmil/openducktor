@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { PublicTaskSummaryTask } from "@openducktor/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
 import type { ToolMeta } from "./agent-chat-message-card-model.types";
 import { createMessageCardElement } from "./agent-chat-message-card-test-harness";
 
@@ -21,24 +22,26 @@ const task = (id = "task-1"): PublicTaskSummaryTask => ({
 
 const renderTool = (tool: string, fields: Partial<ToolMeta>) =>
   renderToStaticMarkup(
-    createMessageCardElement({
-      message: {
-        id: "m1",
-        role: "tool",
-        content: "",
-        timestamp: "2026-09-08T10:00:00.000Z",
-        meta: {
-          kind: "tool",
-          partId: "p1",
-          callId: "c1",
-          tool,
-          toolType: "generic",
-          status: "completed",
-          ...fields,
+    <MemoryRouter>
+      {createMessageCardElement({
+        message: {
+          id: "m1",
+          role: "tool",
+          content: "",
+          timestamp: "2026-09-08T10:00:00.000Z",
+          meta: {
+            kind: "tool",
+            partId: "p1",
+            callId: "c1",
+            tool,
+            toolType: "generic",
+            status: "completed",
+            ...fields,
+          },
         },
-      },
-      sessionAgentColors: {},
-    }),
+        sessionAgentColors: {},
+      })}
+    </MemoryRouter>,
   );
 
 test("renders create_task through the real message card as a Kanban-style task", () => {
@@ -64,6 +67,10 @@ test("renders create_task through the real message card as a Kanban-style task",
     card?.textContent?.indexOf("task-1") ?? -1,
   );
   expect(card?.querySelector(".line-clamp-5")?.textContent).toBe(task().description);
+  const openLink = card?.querySelector('a[data-slot="button"]');
+  expect(openLink?.textContent).toBe("Open");
+  expect(openLink?.getAttribute("href")).toBe("/agents?task=task-1");
+  expect(card?.classList.contains("mb-3")).toBe(true);
   expect(html).not.toContain("Tool details");
 });
 

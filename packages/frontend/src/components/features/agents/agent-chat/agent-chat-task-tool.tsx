@@ -6,10 +6,12 @@ import {
   type PublicTaskSummaryTask,
 } from "@openducktor/contracts";
 import type { ZodType } from "zod";
+import { Link } from "react-router";
 import { IssueTypeBadge } from "@/components/features/kanban/issue-type-badge";
 import { PriorityBadge } from "@/components/features/kanban/priority-badge";
 import { TaskIdBadge } from "@/components/features/tasks/task-id-badge";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { TaskLabelChip } from "@/components/ui/task-label-chip";
 import { statusBadgeClassName, statusLabel } from "@/lib/task-status-presentation";
@@ -63,10 +65,22 @@ const taskSearchSummary = (meta: ToolMeta): string => {
 };
 
 const TaskResultCard = ({ task }: { task: PublicTaskSummaryTask }) => (
-  <Card className="min-w-0 max-w-2xl overflow-hidden" data-task-id={task.id}>
+  <Card className="mb-3 min-w-0 max-w-2xl overflow-hidden" data-task-id={task.id}>
     <CardHeader className="gap-1.5 px-4 pt-4">
-      <CardTitle className="break-words">{task.title}</CardTitle>
-      <TaskIdBadge taskId={task.id} />
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <CardTitle className="break-words">{task.title}</CardTitle>
+          <TaskIdBadge taskId={task.id} />
+        </div>
+        <Button asChild variant="outline" size="xs">
+          <Link
+            to={{ pathname: "/agents", search: new URLSearchParams({ task: task.id }).toString() }}
+            aria-label={`Open task ${task.id}`}
+          >
+            Open
+          </Link>
+        </Button>
+      </div>
     </CardHeader>
     <CardContent className="flex flex-col gap-3 px-4 py-4">
       <div className="flex flex-wrap items-center gap-1.5">
