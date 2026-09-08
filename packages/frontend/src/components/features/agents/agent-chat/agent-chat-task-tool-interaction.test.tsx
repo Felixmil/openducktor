@@ -7,10 +7,10 @@ import {
 } from "@/pages/agents/agent-studio-test-utils";
 import {
   ActiveWorkspaceContext,
-  TasksStateContext,
+  TaskSnapshotContext,
   WorkspaceStateContext,
 } from "@/state/app-state-contexts";
-import type { TasksStateContextValue, WorkspaceStateContextValue } from "@/types/state-slices";
+import type { WorkspaceStateContextValue } from "@/types/state-slices";
 import { createMessageCardElement } from "./agent-chat-message-card-test-harness";
 
 enableReactActEnvironment();
@@ -58,31 +58,6 @@ test("the task card opens and closes the real detail sheet without leaving chat"
       throw new Error("Unexpected model mutation");
     },
   };
-  const tasks: TasksStateContextValue = {
-    tasks: [task],
-    isLoadingTasks: false,
-    isForegroundLoadingTasks: false,
-    isRefreshingTasksInBackground: false,
-    createTask: async () => {},
-    updateTask: async () => {},
-    setTaskTargetBranch: async () => {},
-    refreshTasks: async () => {},
-    syncPullRequests: async () => {},
-    linkMergedPullRequest: async () => {},
-    cancelLinkMergedPullRequest: () => {},
-    unlinkPullRequest: async () => {},
-    detectingPullRequestTaskId: null,
-    linkingMergedPullRequestTaskId: null,
-    unlinkingPullRequestTaskId: null,
-    pendingMergedPullRequest: null,
-    deleteTask: async () => {},
-    closeTask: async () => {},
-    resetTaskImplementation: async () => {},
-    resetTask: async () => {},
-    transitionTask: async () => {},
-    humanApproveTask: async () => {},
-    humanRequestChangesTask: async () => {},
-  };
   const url = window.location.href;
   const view = render(
     <QueryProvider useIsolatedClient>
@@ -90,7 +65,7 @@ test("the task card opens and closes the real detail sheet without leaving chat"
         <ActiveWorkspaceContext
           value={{ activeWorkspace: workspace.activeWorkspace, setActiveWorkspace: () => {} }}
         >
-          <TasksStateContext value={tasks}>
+          <TaskSnapshotContext value={{ tasks: [task], isLoadingTasks: false }}>
             {createMessageCardElement({
               message: {
                 id: "created-message",
@@ -124,7 +99,7 @@ test("the task card opens and closes the real detail sheet without leaving chat"
               },
               sessionAgentColors: {},
             })}
-          </TasksStateContext>
+          </TaskSnapshotContext>
         </ActiveWorkspaceContext>
       </WorkspaceStateContext>
     </QueryProvider>,

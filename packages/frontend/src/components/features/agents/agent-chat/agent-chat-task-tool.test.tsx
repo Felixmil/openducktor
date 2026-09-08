@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import type { PublicTaskSummaryTask } from "@openducktor/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MemoryRouter } from "react-router";
 import type { ToolMeta } from "./agent-chat-message-card-model.types";
 import { createMessageCardElement } from "./agent-chat-message-card-test-harness";
 
@@ -20,28 +19,26 @@ const task = (id = "task-1"): PublicTaskSummaryTask => ({
   documents: { hasSpec: false, hasPlan: false, hasQaReport: false },
 });
 
-const renderTool = (tool: string, fields: Partial<ToolMeta>) =>
+const renderTool = (tool: string, fields: Partial<ToolMeta>): string =>
   renderToStaticMarkup(
-    <MemoryRouter>
-      {createMessageCardElement({
-        message: {
-          id: "m1",
-          role: "tool",
-          content: "",
-          timestamp: "2026-09-08T10:00:00.000Z",
-          meta: {
-            kind: "tool",
-            partId: "p1",
-            callId: "c1",
-            tool,
-            toolType: "generic",
-            status: "completed",
-            ...fields,
-          },
+    createMessageCardElement({
+      message: {
+        id: "m1",
+        role: "tool",
+        content: "",
+        timestamp: "2026-09-08T10:00:00.000Z",
+        meta: {
+          kind: "tool",
+          partId: "p1",
+          callId: "c1",
+          tool,
+          toolType: "generic",
+          status: "completed",
+          ...fields,
         },
-        sessionAgentColors: {},
-      })}
-    </MemoryRouter>,
+      },
+      sessionAgentColors: {},
+    }),
   );
 
 test("renders create_task through the real message card as a Kanban-style task", () => {

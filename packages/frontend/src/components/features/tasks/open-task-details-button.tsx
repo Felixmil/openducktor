@@ -1,7 +1,12 @@
 import { ArrowUpRightFromSquare } from "lucide-react";
+import type { ReactElement } from "react";
 import { Button } from "@/components/ui/button";
 
-export function OpenTaskDetailsButton({ onClick }: { onClick: () => void }) {
+type OpenTaskDetailsButtonProps = {
+  onClick: () => void;
+};
+
+export function OpenTaskDetailsButton({ onClick }: OpenTaskDetailsButtonProps): ReactElement {
   return (
     <Button
       type="button"
