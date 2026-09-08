@@ -67,9 +67,11 @@ test("renders create_task through the real message card as a Kanban-style task",
     card?.textContent?.indexOf("task-1") ?? -1,
   );
   expect(card?.querySelector(".line-clamp-5")?.textContent).toBe(task().description);
-  const openLink = card?.querySelector('a[data-slot="button"]');
-  expect(openLink?.textContent).toBe("Open");
-  expect(openLink?.getAttribute("href")).toBe("/agents?task=task-1");
+  const openButton = card?.querySelector('button[aria-label="Open task details"]');
+  expect(openButton?.textContent).toBe("Open");
+  expect(openButton?.querySelector("svg.lucide-square-arrow-out-up-right")).not.toBeNull();
+  expect(openButton?.parentElement?.textContent).toContain("task-1");
+  expect(card?.querySelector("a[href]")).toBeNull();
   expect(card?.classList.contains("mb-3")).toBe(true);
   expect(html).not.toContain("Tool details");
 });

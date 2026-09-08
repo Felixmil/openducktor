@@ -1,7 +1,6 @@
-import { ArrowUpRightFromSquare } from "lucide-react";
 import { type ReactElement, useCallback, useState } from "react";
 import { TaskIdBadge } from "@/components/features/tasks/task-id-badge";
-import { Button } from "@/components/ui/button";
+import { OpenTaskDetailsButton } from "@/components/features/tasks/open-task-details-button";
 import { CardHeader, CardTitle } from "@/components/ui/card";
 import type { AgentStudioHeaderModel } from "./agent-studio-header.types";
 import { QuickActionsMenu } from "./agent-studio-header-quick-actions";
@@ -38,17 +37,7 @@ function HeaderTitle({ taskTitle, taskId, onOpenTaskDetails }: HeaderTitleProps)
         <div className="flex items-center gap-1.5">
           <TaskIdBadge taskId={normalizedTaskId} />
           {canOpenTaskDetails ? (
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-auto shrink-0 gap-1 rounded-md border border-transparent px-1.5 py-0 text-[11px] font-normal text-muted-foreground transition hover:border-border hover:bg-muted hover:text-muted-foreground"
-              title="Open task details"
-              aria-label="Open task details"
-              onClick={() => onOpenTaskDetails?.()}
-            >
-              <ArrowUpRightFromSquare className="size-3" />
-              Open
-            </Button>
+            <OpenTaskDetailsButton onClick={() => onOpenTaskDetails?.()} />
           ) : null}
         </div>
       ) : null}

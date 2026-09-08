@@ -6,12 +6,12 @@ import {
   type PublicTaskSummaryTask,
 } from "@openducktor/contracts";
 import type { ZodType } from "zod";
-import { Link } from "react-router";
+import { lazy, Suspense, useState } from "react";
 import { IssueTypeBadge } from "@/components/features/kanban/issue-type-badge";
 import { PriorityBadge } from "@/components/features/kanban/priority-badge";
 import { TaskIdBadge } from "@/components/features/tasks/task-id-badge";
+import { OpenTaskDetailsButton } from "@/components/features/tasks/open-task-details-button";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { TaskLabelChip } from "@/components/ui/task-label-chip";
 import { statusBadgeClassName, statusLabel } from "@/lib/task-status-presentation";
@@ -20,6 +20,10 @@ import { RegularToolMessage } from "./agent-chat-message-card-tool-presenters";
 import { getToolLifecyclePhase } from "./tool-lifecycle";
 
 type TaskTool = "create_task" | "search_tasks";
+
+const TaskDetailsSheetViewer = lazy(
+  () => import("@/components/features/tasks/task-details-sheet-viewer"),
+);
 
 const readTaskToolResult = <Result,>(
   schema: ZodType<Result>,
@@ -64,47 +68,48 @@ const taskSearchSummary = (meta: ToolMeta): string => {
   return filters.join(" · ");
 };
 
-const TaskResultCard = ({ task }: { task: PublicTaskSummaryTask }) => (
-  <Card className="mb-3 min-w-0 max-w-2xl overflow-hidden" data-task-id={task.id}>
-    <CardHeader className="gap-1.5 px-4 pt-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-col gap-1.5">
+const TaskResultCard = ({ task }: { task: PublicTaskSummaryTask }) => {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  return (
+    <>
+      <Card className="mb-3 min-w-0 max-w-2xl overflow-hidden" data-task-id={task.id}>
+        <CardHeader className="gap-1.5 px-4 pt-4">
           <CardTitle className="break-words">{task.title}</CardTitle>
-          <TaskIdBadge taskId={task.id} />
-        </div>
-        <Button asChild variant="outline" size="xs">
-          <Link
-            to={{ pathname: "/agents", search: new URLSearchParams({ task: task.id }).toString() }}
-            aria-label={`Open task ${task.id}`}
-          >
-            Open
-          </Link>
-        </Button>
-      </div>
-    </CardHeader>
-    <CardContent className="flex flex-col gap-3 px-4 py-4">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <IssueTypeBadge issueType={task.issueType} />
-        <PriorityBadge priority={task.priority} />
-        <Badge variant="outline" className={statusBadgeClassName(task.status)}>
-          {statusLabel(task.status)}
-        </Badge>
-      </div>
-      {task.description && (
-        <CardDescription className="line-clamp-5 whitespace-pre-wrap break-words">
-          {task.description}
-        </CardDescription>
+          <div className="flex items-center gap-1.5">
+            <TaskIdBadge taskId={task.id} />
+            <OpenTaskDetailsButton onClick={() => setDetailsOpen(true)} />
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 px-4 py-4">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <IssueTypeBadge issueType={task.issueType} />
+            <PriorityBadge priority={task.priority} />
+            <Badge variant="outline" className={statusBadgeClassName(task.status)}>
+              {statusLabel(task.status)}
+            </Badge>
+          </div>
+          {task.description && (
+            <CardDescription className="line-clamp-5 whitespace-pre-wrap break-words">
+              {task.description}
+            </CardDescription>
+          )}
+          {task.labels.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {task.labels.map((label) => (
+                <TaskLabelChip key={label} label={label} truncateLabel />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      {detailsOpen && (
+        <Suspense fallback={<p role="status">Loading task details…</p>}>
+          <TaskDetailsSheetViewer taskId={task.id} onOpenChange={setDetailsOpen} />
+        </Suspense>
       )}
-      {task.labels.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {task.labels.map((label) => (
-            <TaskLabelChip key={label} label={label} truncateLabel />
-          ))}
-        </div>
-      )}
-    </CardContent>
-  </Card>
-);
+    </>
+  );
+};
 
 export const AgentChatTaskTool = ({
   meta,
