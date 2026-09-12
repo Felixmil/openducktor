@@ -31,6 +31,36 @@ const useTwoAgentModelFavorites = (args: {
 });
 
 describe("useAgentModelFavorites", () => {
+  test("keeps its result stable between changes and updates it after saving", async () => {
+    const original = host.workspaceGetSettingsSnapshot;
+    host.workspaceGetSettingsSnapshot = mock(async () => createSettingsSnapshotFixture());
+    const args = {
+      saveAgentModelFavorites: async (favorites: AgentModelFavorite[]) =>
+        createSettingsSnapshotFixture({ agentModelFavorites: favorites }),
+    };
+    const harness = createHookHarness(useAgentModelFavorites, args, { wrapper });
+    try {
+      await harness.mount();
+      await harness.waitFor((state) => state.favorites !== null, 2000);
+      const initial = harness.getLatest();
+      await harness.update(args);
+      expect(harness.getLatest()).toBe(initial);
+      await harness.run((state) => state.toggleFavorite(favorite));
+      await harness.waitFor(
+        (state) => state.isFavorite(favorite) && !state.isMutationPending,
+        2000,
+      );
+      const saved = harness.getLatest();
+      expect(saved).not.toBe(initial);
+      expect(saved.favorites).toEqual([favorite]);
+      await harness.update(args);
+      expect(harness.getLatest()).toBe(saved);
+    } finally {
+      await harness.unmount();
+      host.workspaceGetSettingsSnapshot = original;
+    }
+  }, 5000);
+
   test("composes writes from separate mounted hooks against the latest saved favorites", async () => {
     const initialSnapshot = createSettingsSnapshotFixture();
     const firstSavedSnapshot = createSettingsSnapshotFixture({

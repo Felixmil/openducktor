@@ -83,7 +83,10 @@ import { createNodeTaskSessionServices } from "./node-task-session-services";
 import { createNodeWorkspaceSessionPersistence } from "./node-workspace-session-persistence";
 import { createOpenCodeRuntimeComposition } from "./opencode-runtime-composition";
 import { createRuntimeActiveSessionResolver } from "./runtime-active-session-resolver";
-import { resolveWorkspaceRuntimeMcpBridgeConnection } from "./workspace-runtime-mcp-bridge-connection";
+import {
+  resolveClaudeWorkspaceRuntimeMcpBridgeConnection,
+  resolveWorkspaceRuntimeMcpBridgeConnection,
+} from "./workspace-runtime-mcp-bridge-connection";
 
 export type { CreateNodeHostCommandRouterInput, EffectNodeHostCommandRouter };
 export const assembleNodeEffectHostCommandRouter = (
@@ -120,27 +123,23 @@ export const assembleNodeEffectHostCommandRouter = (
     worktreeFiles,
   } = defaultPorts;
   const workspaceSettingsService = createWorkspaceSettingsService(settingsConfig);
-  const taskAssetServiceInput: Parameters<typeof createNodeTaskAssetServices>[0] = {
+  const assets = createNodeTaskAssetServices({
+    configuredTaskStore,
     onBackgroundFailure,
     processEnv,
     workspaceSettingsService,
-  };
-  if (configuredTaskStore) {
-    taskAssetServiceInput.configuredTaskStore = configuredTaskStore;
-  }
-  const assets = createNodeTaskAssetServices(taskAssetServiceInput);
+  });
   const { startupSweep, taskAssetReadService, taskAssetStagingService, taskStore } = assets;
-  const { persistence: sessionPersistence, publishUpdated: publishWorkspaceSessionUpdated } =
-    createNodeWorkspaceSessionPersistence({
-      store: assets.workspaceSessionStore,
-      settings: workspaceSettingsService,
-      git,
-      eventBus,
-    });
+  const workspaceSessions = createNodeWorkspaceSessionPersistence({
+    store: assets.workspaceSessionStore,
+    settings: workspaceSettingsService,
+    git,
+    eventBus,
+  });
   const liveSessionAdapterRegistry = createLiveSessionAdapterRegistry();
   const agentSessionLiveStateService = createAgentSessionLiveStateService({
     adapterRegistry: liveSessionAdapterRegistry,
-    persistence: sessionPersistence,
+    persistence: workspaceSessions.persistence,
     faultLog: createLiveSessionFaultLogger(lifecycleLogger),
     publish: createLiveSessionPublisher(eventBus),
   });
@@ -179,23 +178,7 @@ export const assembleNodeEffectHostCommandRouter = (
     toolDiscovery,
     workingDirectoryDependencies,
     resolveMcpBridgeConnection: (repoPath) =>
-      resolvedMcpHostBridge
-        ? resolvedMcpHostBridge.ensureConnection({ repoPath }).pipe(
-            Effect.mapError(
-              (cause) =>
-                new HostOperationError({
-                  operation: "claude-agent-sdk.resolve-mcp-bridge",
-                  message: cause.message,
-                  cause,
-                }),
-            ),
-          )
-        : Effect.fail(
-            new HostOperationError({
-              operation: "claude-agent-sdk.resolve-mcp-bridge",
-              message: "Claude Agent SDK requires an initialized MCP host bridge.",
-            }),
-          ),
+      resolveClaudeWorkspaceRuntimeMcpBridgeConnection(resolvedMcpHostBridge, repoPath),
   });
   const codexWorkspaceRuntimeStarterInput: Parameters<
     typeof createCodexWorkspaceRuntimeStarter
@@ -311,6 +294,7 @@ export const assembleNodeEffectHostCommandRouter = (
       },
       canonicalizeRepoPath: (repoPath) => git.canonicalizePath(repoPath),
       agentSessionLiveStateService,
+      repositoryPolicy: workspaceSessions.persistence,
     });
   const odtMcpBridgeService = createOdtMcpBridgeService({
     taskAssetReadService,
@@ -336,6 +320,7 @@ export const assembleNodeEffectHostCommandRouter = (
   });
   let pullRequestSyncLoop: TaskSyncLoopHandle | null = null;
   const workspaceSessionService = createWorkspaceSessionService({
+    operationGate: workspaceSessions.operationGate,
     store: assets.workspaceSessionStore,
     settings: workspaceSettingsService,
     runtime: runtimeOrchestratorWithEffectiveRegistry,
@@ -401,20 +386,7 @@ export const assembleNodeEffectHostCommandRouter = (
               createStopDevServersStep(devServerService, lifecycleLogger),
               createStopRuntimesStep(effectiveRuntimeRegistry, lifecycleLogger),
               createStopMcpHostBridgeStep(resolvedMcpHostBridge, lifecycleLogger),
-              {
-                label: "task asset staging",
-                run: () =>
-                  taskAssetStagingService.shutdownCleanup().pipe(
-                    Effect.mapError(
-                      (cause) =>
-                        new HostOperationError({
-                          operation: "host.dispose.task_assets",
-                          message: cause.message,
-                          cause,
-                        }),
-                    ),
-                  ),
-              },
+              assets.taskAssetStagingShutdownStep,
               assets.taskStoreConnectionShutdownStep,
             ],
             lifecycleLogger,
@@ -505,7 +477,7 @@ export const assembleNodeEffectHostCommandRouter = (
       ...createWorkspaceSettingsCommandHandlers(workspaceSettingsService),
       ...createWorkspaceSessionCommandHandlers(
         workspaceSessionService,
-        publishWorkspaceSessionUpdated,
+        workspaceSessions.publishUpdated,
       ),
     },
   });

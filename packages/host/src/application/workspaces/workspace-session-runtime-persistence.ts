@@ -18,6 +18,8 @@ import type { AgentSessionPersistencePort } from "../../ports/agent-session-pers
 import type { TaskStoreError } from "../../ports/task-repository-ports";
 import type { WorkspaceSessionStorePort } from "../../ports/workspace-session-store-port";
 import type { WorkspaceSettingsService } from "./workspace-settings-model";
+import type { AgentSessionOperationPolicy } from "../agent-sessions/agent-session-operation-policy";
+import type { createWorkspaceSessionOperationGate } from "./workspace-session-operation-gate";
 import {
   validateWorkspaceSessionTarget,
   type WorkspaceSessionTargetDependencies,
@@ -46,12 +48,14 @@ export const createWorkspaceSessionRuntimePersistence = ({
   settings,
   git,
   publishUpdated,
+  operationGate,
 }: {
   store: WorkspaceSessionStorePort;
   settings: Pick<WorkspaceSettingsService, "getRepoConfigByRepoPath">;
   git: WorkspaceSessionTargetDependencies["git"];
   publishUpdated: WorkspaceSessionUpdatedPublisher;
-}): AgentSessionPersistencePort => {
+  operationGate: ReturnType<typeof createWorkspaceSessionOperationGate>;
+}): AgentSessionPersistencePort & AgentSessionOperationPolicy => {
   const pendingFinalMessages = new Map<string, { messageId: string; occurredAt: number }>();
   const find = (runtimeRef: AgentSessionLiveRef) =>
     Effect.gen(function* () {
@@ -113,23 +117,17 @@ export const createWorkspaceSessionRuntimePersistence = ({
   const recordAcceptedMessage = (
     runtimeRef: AgentSessionLiveRef,
     message: AcceptedAgentUserMessage,
+    saveModel: boolean,
   ) =>
     Effect.gen(function* () {
       const known = yield* find(runtimeRef);
       if (!known) return;
-      let { session } = known;
-      const before = session;
-      if (session.generatedTitle === null) {
-        const generatedTitle = buildWorkspaceSessionTitle(message);
-        if (generatedTitle !== null)
-          session = yield* storeEffect(store.setGeneratedTitle({ ...known.ref, generatedTitle }));
-      }
-      const occurredAt = Date.parse(message.timestamp);
-      if (occurredAt > session.updatedAt)
-        session = yield* storeEffect(
-          store.recordActivity({ ...known.ref, activity: { type: "user_message", occurredAt } }),
-        );
-      if (message.model) {
+      const input: Parameters<WorkspaceSessionStorePort["recordAcceptedMessage"]>[0] = {
+        ...known.ref,
+        generatedTitle: buildWorkspaceSessionTitle(message),
+        occurredAt: Date.parse(message.timestamp),
+      };
+      if (saveModel && message.model) {
         if (
           message.model.runtimeKind !== undefined &&
           message.model.runtimeKind !== runtimeRef.runtimeKind
@@ -140,14 +138,10 @@ export const createWorkspaceSessionRuntimePersistence = ({
               field: "model",
             }),
           );
-        session = yield* storeEffect(
-          store.setSelectedModel({
-            ...known.ref,
-            selectedModel: { ...message.model, runtimeKind: runtimeRef.runtimeKind },
-          }),
-        );
+        input.selectedModel = { ...message.model, runtimeKind: runtimeRef.runtimeKind };
       }
-      if (session !== before) yield* publishUpdated(known.ref.workspaceId, session);
+      const saved = yield* storeEffect(store.recordAcceptedMessage(input));
+      yield* publishUpdated(known.ref.workspaceId, saved);
     });
   const flushFinalMessage = (runtimeRef: AgentSessionLiveRef) =>
     Effect.gen(function* () {
@@ -171,13 +165,24 @@ export const createWorkspaceSessionRuntimePersistence = ({
       yield* findActive(runtimeRef);
     });
   return {
-    prepareResume: prepare,
+    run: (runtimeRef, _operation, effect) =>
+      Effect.gen(function* () {
+        const known = yield* find(runtimeRef);
+        return yield* known ? operationGate.run(known.ref, effect) : effect;
+      }),
+    prepareResume: (input) =>
+      prepare(input).pipe(
+        Effect.map((prepared) => ({
+          input: prepared,
+          save: () => Effect.void,
+        })),
+      ),
     prepareSend: prepare,
     validateRef,
-    validateModelUpdate: (input) =>
+    prepareModelUpdate: (input) =>
       Effect.gen(function* () {
         const known = yield* findActive(input);
-        if (!known) return;
+        if (!known) return { input, previousModel: null, save: Effect.succeed(Effect.void) };
         if (input.model === null)
           return yield* Effect.fail(
             new HostValidationError({
@@ -185,20 +190,25 @@ export const createWorkspaceSessionRuntimePersistence = ({
               field: "model",
             }),
           );
+        const model = input.model;
+        return {
+          input,
+          previousModel: known.session.selectedModel,
+          save: Effect.suspend(() =>
+            storeEffect(
+              store.setSelectedModel({
+                ...known.ref,
+                selectedModel: {
+                  ...model,
+                  runtimeKind: input.runtimeKind,
+                  profileId: known.session.selectedModel?.profileId,
+                },
+              }),
+            ),
+          ).pipe(Effect.map((saved) => publishUpdated(known.ref.workspaceId, saved))),
+        };
       }),
-    recordModelUpdate: (input) =>
-      Effect.gen(function* () {
-        const known = yield* find(input);
-        if (!known || input.model === null) return;
-        const saved = yield* storeEffect(
-          store.setSelectedModel({
-            ...known.ref,
-            selectedModel: { ...input.model, runtimeKind: input.runtimeKind },
-          }),
-        );
-        yield* publishUpdated(known.ref.workspaceId, saved);
-      }),
-    recordAcceptedMessage,
+    recordAcceptedMessage: (ref, message) => recordAcceptedMessage(ref, message, true),
     observe: (envelope) =>
       Effect.gen(function* () {
         if (envelope.type === "session_removed") {
@@ -213,7 +223,7 @@ export const createWorkspaceSessionRuntimePersistence = ({
         const { event } = envelope;
         const key = agentSessionRefKey(event.sessionRef);
         if (event.type === "user_message") {
-          yield* recordAcceptedMessage(event.sessionRef, event);
+          yield* recordAcceptedMessage(event.sessionRef, event, false);
         } else if (event.type === "assistant_message") {
           if (yield* find(event.sessionRef)) {
             const occurredAt = Date.parse(event.timestamp);

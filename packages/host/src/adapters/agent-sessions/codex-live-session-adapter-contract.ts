@@ -65,7 +65,7 @@ export type CodexLiveSessionAdapterPreparer = (
 
 export type CreateCodexLiveSessionAdapterPreparerInput = {
   readonly prepareImageGenerations: CodexImageGenerationPreparer;
-  readonly liveSessionLifecycle: Pick<RuntimeLiveSessionLifecyclePort, "runAdapterMutation">;
+  readonly liveSessionLifecycle: Pick<RuntimeLiveSessionLifecyclePort, "createRuntimeRegistration">;
   readonly codexAppServer: CodexAppServerPort & CodexSessionHistoryPort;
   readonly onBackgroundFailure: (
     failure: HostOperationErrorAggregate,

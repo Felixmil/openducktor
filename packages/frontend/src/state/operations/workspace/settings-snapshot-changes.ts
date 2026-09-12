@@ -3,6 +3,7 @@ import type { SettingsSnapshot } from "@openducktor/contracts";
 export type SettingsSnapshotChanges = {
   workspacesChanged: boolean;
   agentRuntimesChanged: boolean;
+  customAgentRolesChanged: boolean;
   kanbanDoneVisibleDaysChanged: boolean;
   changedGitProviderRepoPaths: string[];
 };
@@ -44,6 +45,8 @@ export const diffSettingsSnapshots = (
     previous === undefined || !isSameJsonValue(previous.workspaces, next.workspaces),
   agentRuntimesChanged:
     previous === undefined || !isSameJsonValue(previous.agentRuntimes, next.agentRuntimes),
+  customAgentRolesChanged:
+    previous === undefined || !isSameJsonValue(previous.customAgentRoles, next.customAgentRoles),
   kanbanDoneVisibleDaysChanged:
     previous !== undefined && previous.kanban.doneVisibleDays !== next.kanban.doneVisibleDays,
   changedGitProviderRepoPaths: changedGitProviderRepoPaths(previous?.workspaces, next.workspaces),

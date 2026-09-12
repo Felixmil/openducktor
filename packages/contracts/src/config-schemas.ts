@@ -697,6 +697,7 @@ export type GlobalConfig = ParsedGlobalConfig;
 
 export const settingsSnapshotSchema = z.object({
   system: systemSettingsSchema.default({}),
+  customAgentRoles: globalConfigSharedFields.customAgentRoles,
   theme: themeValueSchema,
   git: globalGitConfigSchema.default({ defaultMergeMethod: "merge_commit" }),
   general: generalSettingsSchema.default(DEFAULT_GENERAL_SETTINGS),
@@ -722,6 +723,12 @@ const settingsSnapshotSaveAgentModelFavoritesSchema = agentModelFavoritesSchema
 
 export const settingsSnapshotSaveInputSchema = z.object({
   system: systemSettingsSchema,
+  customAgentRoles: globalConfigSharedFields.customAgentRoles
+    .removeDefault()
+    .optional()
+    .describe(
+      "Replace custom roles only when this section was edited. Omit to leave saved roles unchanged.",
+    ),
   git: globalGitConfigSchema,
   general: generalSettingsSchema,
   appearance: appearanceSettingsSchema,

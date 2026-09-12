@@ -3,6 +3,7 @@ import { prepareGlobalGitSettingsForSave } from "./settings-save/global-git-sett
 import type { DirtySections } from "./use-settings-modal-dirty-state";
 
 const DIRTY_SECTION_KEYS = [
+  "customAgentRoles",
   "general",
   "appearance",
   "chat",
@@ -69,6 +70,7 @@ export const buildRepoScriptValidationSaveError = ({
 };
 
 export type SettingsSaveValidation = {
+  customAgentRoles: { hasErrors: boolean; errorCount: number };
   prompt: { hasErrors: boolean; errorCount: number };
   reusablePrompts: { hasErrors: boolean; errorCount: number };
   runtimeRequest: { isPending: boolean; error: string | null };
@@ -103,6 +105,12 @@ const saveBlocker = (
 export const getSettingsSaveBlocker = (
   validation: SettingsSaveValidation,
 ): SettingsSaveBlocker | null => {
+  if (validation.customAgentRoles.hasErrors) {
+    const count = validation.customAgentRoles.errorCount;
+    return saveBlocker(
+      `Fix ${count} custom role field error${count > 1 ? "s" : ""} before saving.`,
+    );
+  }
   if (validation.prompt.hasErrors) {
     return saveBlocker(buildPromptValidationSaveError(validation.prompt.errorCount));
   }

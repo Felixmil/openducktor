@@ -22,6 +22,32 @@ const session = (id: string, updatedAt = 1000): WorkspaceSession => ({
 });
 
 describe("Workspace Session query cache", () => {
+  test("a cancelled read that later rejects cannot remove the next read's event buffer", async () => {
+    const client = new QueryClient();
+    const old = Promise.withResolvers<WorkspaceSession[]>();
+    const next = Promise.withResolvers<WorkspaceSession[]>();
+    let reads = 0;
+    const options = workspaceSessionListQueryOptions("A", false, {
+      workspaceSessionListActive: () => (++reads === 1 ? old.promise : next.promise),
+      workspaceSessionListArchived: async () => [],
+    });
+    try {
+      const cancelled = client.fetchQuery(options).catch(() => undefined);
+      await client.cancelQueries({ queryKey: options.queryKey });
+      await cancelled;
+      const current = client.fetchQuery(options);
+      old.reject(new Error("Old host read failed"));
+      await Promise.resolve();
+      const entry = session("current");
+      updateWorkspaceSessionQueries(client, "A", entry);
+      next.resolve([]);
+      await current;
+      expect(client.getQueryData<WorkspaceSession[]>(options.queryKey)).toEqual([entry]);
+    } finally {
+      client.clear();
+    }
+  });
+
   test("returning to a Workspace shows its cached list while its background read is pending", () => {
     const client = new QueryClient();
     const first = session("workspace-A");
@@ -107,7 +133,7 @@ describe("Workspace Session query cache", () => {
     }
   });
 
-  test("an event during the initial read starts a fresh complete list read", async () => {
+  test("an event during the initial read joins the complete baseline without another read", async () => {
     const client = new QueryClient();
     const entry = session("first");
     let resolveOld!: (value: WorkspaceSession[]) => void;
@@ -137,7 +163,7 @@ describe("Workspace Session query cache", () => {
       updateWorkspaceSessionQueries(client, "A", entry);
       resolveOld([]);
       await loaded;
-      expect(reads).toBe(2);
+      expect(reads).toBe(1);
       expect(
         client.getQueryData<WorkspaceSession[]>(workspaceSessionQueryKeys.list("A", false)),
       ).toEqual([entry]);
@@ -147,4 +173,31 @@ describe("Workspace Session query cache", () => {
       client.clear();
     }
   });
+
+  test.each([false, true])(
+    "keeps metadata between read completion and cache commit, cached=%s",
+    async (cached) => {
+      const client = new QueryClient();
+      const baseline = Promise.withResolvers<WorkspaceSession[]>();
+      const entry = session("first");
+      const updated = { ...entry, manualTitle: "Updated at commit" };
+      const key = workspaceSessionQueryKeys.list("A", false);
+      if (cached) client.setQueryData<WorkspaceSession[]>(key, [entry]);
+      try {
+        const read = client.fetchQuery(
+          workspaceSessionListQueryOptions("A", false, {
+            workspaceSessionListActive: () => baseline.promise,
+            workspaceSessionListArchived: async () => [],
+          }),
+        );
+        baseline.resolve(cached ? [entry] : []);
+        await Promise.resolve();
+        updateWorkspaceSessionQueries(client, "A", updated);
+        await read;
+        expect(client.getQueryData<WorkspaceSession[]>(key)).toEqual([updated]);
+      } finally {
+        client.clear();
+      }
+    },
+  );
 });

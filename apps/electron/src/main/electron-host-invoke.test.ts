@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { CodexSessionHistoryError, TaskAssetError, TerminalServiceError } from "@openducktor/host";
 import { Effect } from "effect";
+import { AgentSessionMessageAcceptedError } from "../../../../packages/host/src/ports/agent-session-send-error";
 import { runElectronHostInvoke } from "./electron-host-invoke";
 import { RuntimeQueryError } from "@openducktor/host";
 
@@ -33,6 +34,38 @@ describe("runElectronHostInvoke", () => {
         message: failure.detail,
         failure: { kind: "runtime_query", runtimeQueryFailure: failure },
       },
+    });
+  });
+  test("preserves accepted-message failures through main and preload IPC validation", async () => {
+    const { createElectronHostInvoke } = await import("../preload/electron-host-invoke");
+    const error = new AgentSessionMessageAcceptedError(
+      {
+        sessionRef: {
+          repoPath: "/repo",
+          runtimeKind: "codex",
+          workingDirectory: "/repo",
+          externalSessionId: "native",
+        },
+        acceptedMessage: {
+          type: "user_message",
+          externalSessionId: "native",
+          messageId: "message-1",
+          timestamp: "2026-09-12T10:00:00Z",
+          message: "Hello",
+          parts: [],
+          state: "read",
+        },
+        stage: "record_message",
+      },
+      new Error("Save failed"),
+    );
+    const response = await runElectronHostInvoke(Effect.fail(error));
+    const invoke = createElectronHostInvoke({
+      invoke: async () => ({ status: "success", payload: structuredClone(response) }),
+    });
+    await expect(invoke("agent_session_control_send")).resolves.toMatchObject({
+      ok: false,
+      error: { message: error.message, failure: error.failure },
     });
   });
   test("preserves void command results across the Electron boundary", async () => {

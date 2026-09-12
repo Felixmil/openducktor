@@ -55,6 +55,24 @@ const expectedDefaultChatSettings = {
 } as const;
 
 describe("config-schemas", () => {
+  test("settings transport carries roles and distinguishes unchanged roles from deletion", () => {
+    const role = { id: "review", name: "Reviewer", systemPrompt: "Review code." };
+    const snapshot = settingsSnapshotSchema.parse({ theme: "light", customAgentRoles: [role] });
+    expect(snapshot.customAgentRoles).toEqual([role]);
+    expect(settingsSnapshotSaveInputSchema.parse(snapshot).customAgentRoles).toEqual([role]);
+    const { customAgentRoles, ...missingRoles } = snapshot;
+    expect(customAgentRoles).toEqual([role]);
+    expect(settingsSnapshotSaveInputSchema.parse(missingRoles).customAgentRoles).toBeUndefined();
+    expect(
+      settingsSnapshotSaveInputSchema.parse({ ...snapshot, customAgentRoles: [] }).customAgentRoles,
+    ).toEqual([]);
+    expect(
+      settingsSnapshotSaveInputSchema.safeParse({
+        ...snapshot,
+        customAgentRoles: [{ ...role, name: " " }],
+      }).success,
+    ).toBe(false);
+  });
   test("uses version 3 runtime paths and retains an explicit version 2 migration schema", () => {
     const current = globalConfigSchema.parse({ version: 3 });
     const legacy = persistedGlobalConfigV2Schema.parse({
@@ -100,6 +118,7 @@ describe("config-schemas", () => {
   test("limits bulk settings saves to explicitly owned fields", () => {
     expect(settingsSnapshotSaveInputSchema.keyof().options).toEqual([
       "system",
+      "customAgentRoles",
       "git",
       "general",
       "appearance",

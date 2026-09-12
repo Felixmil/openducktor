@@ -259,12 +259,12 @@ const modelVariantPlaceholder = ({
     return "Select model first";
   }
   if (!supportsVariants) {
-    return "Variants handled by runtime";
+    return "Effort handled by runtime";
   }
   if (variantOptions.length === 0) {
-    return "This model has no variants";
+    return "This model has no effort options";
   }
-  return "Select variant";
+  return "Select effort";
 };
 
 function ModelVariantFields({
@@ -278,10 +278,11 @@ function ModelVariantFields({
 }: ModelVariantFieldsProps): ReactElement {
   return (
     <div className="grid gap-1.5" data-testid="session-start-variant-field">
-      <label className="text-sm font-medium text-foreground" htmlFor="session-start-variant">
-        Variant
-      </label>
+      <p className="text-sm font-medium text-foreground" id="session-start-variant-label">
+        Effort
+      </p>
       <Combobox
+        triggerAriaLabelledBy="session-start-variant-label"
         value={selectedVariant}
         options={variantOptions}
         placeholder={modelVariantPlaceholder({
@@ -363,7 +364,7 @@ const runtimeProfileHelperTextFor = ({
   isSelectionCatalogLoading: boolean;
 }): string | null => {
   if (isReuseMode) {
-    return "Reuse mode keeps the previous session runtime profile, model, and variant.";
+    return "Reuse mode keeps the previous session runtime profile, model, and effort.";
   }
   if (isSelectionCatalogLoading) {
     return "Loading profiles for the selected runtime.";
@@ -463,6 +464,7 @@ function SessionStartModelPicker({ model }: { model: SessionStartModalModel }): 
           : { kind: "editable" }
       }
       placeholder={isSelectionCatalogLoading ? "Loading models..." : "Select a model"}
+      triggerClassName="w-full justify-between"
       onValueChange={onSelectModelPair}
     />
   );
@@ -651,9 +653,20 @@ export function SessionStartModal({ model }: { model: SessionStartModalModel }):
                 />
               ) : null}
 
-              <div className="grid gap-1.5" data-testid="session-start-model-picker-field">
-                <p className="text-sm font-medium text-foreground">Runtime and model</p>
-                <SessionStartModelPicker model={model} />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="grid gap-1.5" data-testid="session-start-model-picker-field">
+                  <p className="text-sm font-medium text-foreground">Runtime and model</p>
+                  <SessionStartModelPicker model={model} />
+                </div>
+                <ModelVariantFields
+                  isSelectionCatalogLoading={isSelectionCatalogLoading}
+                  selectedModelSelection={selectedModelSelection}
+                  selectedVariant={selectedVariant}
+                  supportsVariants={supportsVariants}
+                  variantDisabled={variantDisabled}
+                  variantOptions={variantOptions}
+                  onSelectVariant={onSelectVariant}
+                />
               </div>
 
               {supportsProfiles ? (
@@ -665,16 +678,6 @@ export function SessionStartModal({ model }: { model: SessionStartModalModel }):
                   onSelectRuntimeProfile={onSelectRuntimeProfile}
                 />
               ) : null}
-
-              <ModelVariantFields
-                isSelectionCatalogLoading={isSelectionCatalogLoading}
-                selectedModelSelection={selectedModelSelection}
-                selectedVariant={selectedVariant}
-                supportsVariants={supportsVariants}
-                variantDisabled={variantDisabled}
-                variantOptions={variantOptions}
-                onSelectVariant={onSelectVariant}
-              />
 
               <SessionStartKickoffField
                 draft={kickoffDraft}

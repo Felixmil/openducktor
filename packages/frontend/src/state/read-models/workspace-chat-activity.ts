@@ -12,11 +12,13 @@ export const summarizeWorkspaceChatActivity = (
   sessions: RepositoryAgentSessionSummary[],
   records: WorkspaceSession[],
 ): AgentActivitySummary => {
-  const recordsByIdentity = new Map(
-    records
-      .filter((record) => record.archivedAt === null)
-      .map((record) => [agentSessionIdentityKey(workspaceSessionIdentity(record)), record]),
-  );
+  const recordsByIdentity = new Map<string, WorkspaceSession>();
+  for (const record of records) {
+    const identity = workspaceSessionIdentity(record);
+    if (record.archivedAt === null && identity) {
+      recordsByIdentity.set(agentSessionIdentityKey(identity), record);
+    }
+  }
   const activeSessions: AgentActivitySessionItem[] = [];
   const waitingForInputSessions: AgentActivitySessionItem[] = [];
   for (const session of sessions) {
@@ -26,7 +28,9 @@ export const summarizeWorkspaceChatActivity = (
     const record = recordsByIdentity.get(agentSessionIdentityKey(session));
     if (!record) continue;
     const item: AgentActivitySessionItem = {
-      ...workspaceSessionIdentity(record),
+      externalSessionId: session.externalSessionId,
+      runtimeKind: session.runtimeKind,
+      workingDirectory: session.workingDirectory,
       taskId: null,
       role: null,
       workspaceSessionId: record.id,

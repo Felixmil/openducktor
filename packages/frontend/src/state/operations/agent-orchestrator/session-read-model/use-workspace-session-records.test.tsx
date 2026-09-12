@@ -7,6 +7,7 @@ import {
   type WorkspaceSessionUpdateListener,
 } from "@/lib/shell-bridge";
 import { workspaceSessionQueryKeys } from "@/state/queries/workspace-sessions";
+import { observeWorkspaceSessionRecords } from "@/state/queries/workspace-session-updates";
 import { createShellBridgeFixture } from "@/test-utils/focused-fixture";
 import { createHookHarness } from "@/test-utils/react-hook-harness";
 import { useWorkspaceSessionRecords } from "./use-workspace-session-records";
@@ -26,6 +27,46 @@ const record = (name: string): WorkspaceSession => ({
 });
 
 describe("Workspace Session metadata subscription", () => {
+  test("shares one native subscription with notifications until the last consumer leaves", async () => {
+    const client = new QueryClient();
+    let subscriptions = 0;
+    let stops = 0;
+    let emit!: WorkspaceSessionUpdateListener;
+    configureShellBridge(
+      createShellBridgeFixture({
+        client: { workspaceSessionListActive: async () => [record("Original")] },
+        bridge: {
+          subscribeWorkspaceSessionUpdates: async (listener) => {
+            subscriptions += 1;
+            emit = listener;
+            return () => {
+              stops += 1;
+            };
+          },
+        },
+      }),
+    );
+    const stopNotifications = observeWorkspaceSessionRecords(client, () => {});
+    const harness = createHookHarness(() => useWorkspaceSessionRecords("A", client, 0), undefined);
+    try {
+      await harness.mount();
+      await harness.waitFor((state) => state.records.isSuccess);
+      expect(subscriptions).toBe(1);
+      await harness.unmount();
+      expect(stops).toBe(0);
+      emit({ workspaceId: "A", session: record("Updated while inactive") });
+      expect(
+        client.getQueryData<WorkspaceSession[]>(workspaceSessionQueryKeys.list("A", false))?.[0]
+          ?.manualTitle,
+      ).toBe("Updated while inactive");
+    } finally {
+      stopNotifications();
+      client.clear();
+      configureShellBridge(createUnavailableShellBridge());
+    }
+    expect(stops).toBe(1);
+  });
+
   test("clears an opening failure when Retry establishes a subscription without an initial event", async () => {
     const client = new QueryClient();
     let attempts = 0;

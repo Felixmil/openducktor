@@ -16,7 +16,7 @@ import type {
   RuntimeControl,
   TaskLifecycle,
   TaskSessions,
-} from "./task-workflow-session-control-service";
+} from "./task-workflow-session-policy";
 import { storeWorkflowSession, toControlSessionRef } from "./task-workflow-session-storage";
 
 export const createStartTaskWorkflowSession =

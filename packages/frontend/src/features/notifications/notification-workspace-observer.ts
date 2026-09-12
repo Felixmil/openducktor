@@ -1,4 +1,9 @@
-import type { AgentSessionLiveEnvelope, NotificationOccurrence } from "@openducktor/contracts";
+import type {
+  AgentSessionLiveEnvelope,
+  AgentSessionLiveRef,
+  AgentSessionScope,
+  NotificationOccurrence,
+} from "@openducktor/contracts";
 import type {
   NotificationProducerFailure,
   NotificationTaskObserver,
@@ -12,11 +17,13 @@ type Observation = {
   stop: (() => void) | null;
   pending: AgentSessionLiveEnvelope[] | null;
   flush(): void;
+  stopRecords: () => void;
 };
 
 export const createNotificationWorkspaceObserver = ({
   observe,
   taskObserver,
+  sessionRecords,
   publish,
   onFailure,
 }: {
@@ -25,6 +32,11 @@ export const createNotificationWorkspaceObserver = ({
     listener: (envelope: AgentSessionLiveEnvelope) => void,
   ): Promise<() => void>;
   taskObserver: NotificationTaskObserver;
+  sessionRecords: {
+    load(repoPath: string): Promise<void>;
+    resolve(ref: AgentSessionLiveRef): AgentSessionScope | null;
+    subscribe(onChange: () => void): () => void;
+  };
   publish(occurrence: NotificationOccurrence): void;
   onFailure(failure: NotificationProducerFailure): void;
 }) => {
@@ -50,6 +62,7 @@ export const createNotificationWorkspaceObserver = ({
     observation.cancelled = true;
     observation.pending = null;
     observation.stop?.();
+    observation.stopRecords();
     observations.delete(repoPath);
   };
 
@@ -59,6 +72,7 @@ export const createNotificationWorkspaceObserver = ({
       cancelled: false,
       stop: null,
       pending: [],
+      stopRecords: () => {},
       flush() {
         const pending = observation.pending;
         observation.pending = null;
@@ -68,7 +82,7 @@ export const createNotificationWorkspaceObserver = ({
     observations.set(workspace.repoPath, observation);
     const projector = createSessionOccurrenceProjector({
       repositoryLabel: workspace.repositoryLabel,
-      resolveAssociation: (ref) => taskObserver.resolveSessionAssociation(ref),
+      resolveAssociation: sessionRecords.resolve,
       resolveTask: (taskId) => taskObserver.resolveTask(workspace.repoPath, taskId),
     });
 
@@ -92,6 +106,15 @@ export const createNotificationWorkspaceObserver = ({
         onFailure({ repoPath: workspace.repoPath, source: "session", cause });
       }
     };
+
+    observation.stopRecords = sessionRecords.subscribe(() => {
+      if (observation.cancelled || observation.pending !== null) return;
+      try {
+        for (const occurrence of projector.reconcileAssociations()) publish(occurrence);
+      } catch (cause) {
+        onFailure({ repoPath: workspace.repoPath, source: "session", cause });
+      }
+    });
 
     void observe({ repoPath: workspace.repoPath }, (envelope) => {
       if (observation.cancelled) return;
@@ -136,7 +159,17 @@ export const createNotificationWorkspaceObserver = ({
         }
         startObservation(workspace);
       }
-      await taskObserver.syncWorkspaces(workspaces);
+      await Promise.all([
+        taskObserver.syncWorkspaces(workspaces),
+        ...workspaces.map(async (workspace) => {
+          try {
+            await sessionRecords.load(workspace.repoPath);
+          } catch (cause) {
+            stopObservation(workspace.repoPath);
+            onFailure({ repoPath: workspace.repoPath, source: "session", cause });
+          }
+        }),
+      ]);
       if (version !== syncVersion) return;
       for (const workspace of workspaces) {
         if (taskObserver.hasBaseline(workspace.repoPath)) {

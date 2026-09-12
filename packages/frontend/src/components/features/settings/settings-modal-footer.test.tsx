@@ -18,6 +18,7 @@ const renderFooter = (overrides: Partial<Parameters<typeof SettingsModalFooter>[
       },
       validationSummary: {
         promptPlaceholderErrorCount: 0,
+        customAgentRoleFieldErrorCount: 0,
         reusablePromptFieldErrorCount: 0,
         runtimeAvailabilityErrorCount: 0,
         hasUnacknowledgedCodexDangerousSettings: false,
@@ -33,14 +34,35 @@ const renderFooter = (overrides: Partial<Parameters<typeof SettingsModalFooter>[
 };
 
 describe("SettingsModalFooter", () => {
-  test("distinguishes role saves from other settings", () => {
+  test("disables save and shows custom role field errors", () => {
+    const renderer = renderFooter({
+      validationSummary: {
+        promptPlaceholderErrorCount: 0,
+        customAgentRoleFieldErrorCount: 2,
+        reusablePromptFieldErrorCount: 0,
+        runtimeAvailabilityErrorCount: 0,
+        hasUnacknowledgedCodexDangerousSettings: false,
+        repoScriptFieldErrorCount: 0,
+      },
+    });
+    try {
+      expect(screen.getByRole("button", { name: "Save Settings" }).hasAttribute("disabled")).toBe(
+        true,
+      );
+      expect(screen.getByText("2 custom role field errors.")).toBeTruthy();
+    } finally {
+      renderer.unmount();
+    }
+  });
+
+  test("uses the same save and cancel controls for custom roles", () => {
     const renderer = renderFooter({
       location: { section: "custom-agent-roles", repositorySection: "configuration" },
     });
     try {
-      expect(screen.getByRole("button", { name: "Close settings" })).toBeTruthy();
-      expect(screen.getByRole("button", { name: "Save other settings" })).toBeTruthy();
-      expect(screen.queryByRole("button", { name: "Save Settings" })).toBeNull();
+      expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Save Settings" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Save other settings" })).toBeNull();
     } finally {
       renderer.unmount();
     }
@@ -49,6 +71,7 @@ describe("SettingsModalFooter", () => {
     const renderer = renderFooter({
       validationSummary: {
         promptPlaceholderErrorCount: 0,
+        customAgentRoleFieldErrorCount: 0,
         reusablePromptFieldErrorCount: 0,
         runtimeAvailabilityErrorCount: 0,
         hasUnacknowledgedCodexDangerousSettings: false,
@@ -69,6 +92,7 @@ describe("SettingsModalFooter", () => {
     const renderer = renderFooter({
       validationSummary: {
         promptPlaceholderErrorCount: 0,
+        customAgentRoleFieldErrorCount: 0,
         reusablePromptFieldErrorCount: 0,
         runtimeAvailabilityErrorCount: 0,
         hasUnacknowledgedCodexDangerousSettings: false,
@@ -87,6 +111,7 @@ describe("SettingsModalFooter", () => {
     const renderer = renderFooter({
       validationSummary: {
         promptPlaceholderErrorCount: 0,
+        customAgentRoleFieldErrorCount: 0,
         reusablePromptFieldErrorCount: 1,
         runtimeAvailabilityErrorCount: 0,
         hasUnacknowledgedCodexDangerousSettings: false,
@@ -108,6 +133,7 @@ describe("SettingsModalFooter", () => {
     const renderer = renderFooter({
       validationSummary: {
         promptPlaceholderErrorCount: 0,
+        customAgentRoleFieldErrorCount: 0,
         reusablePromptFieldErrorCount: 0,
         runtimeAvailabilityErrorCount: 2,
         hasUnacknowledgedCodexDangerousSettings: false,
@@ -129,6 +155,7 @@ describe("SettingsModalFooter", () => {
     const renderer = renderFooter({
       validationSummary: {
         promptPlaceholderErrorCount: 0,
+        customAgentRoleFieldErrorCount: 0,
         reusablePromptFieldErrorCount: 0,
         runtimeAvailabilityErrorCount: 0,
         hasUnacknowledgedCodexDangerousSettings: true,

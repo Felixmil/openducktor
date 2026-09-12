@@ -1,6 +1,6 @@
 import type { ChatSettings, ReusablePrompt, WorkspaceSession } from "@openducktor/contracts";
-import { useQueryClient } from "@tanstack/react-query";
-import { type ReactElement, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { type ReactElement, useCallback, useMemo } from "react";
 import { AgentChatSurface } from "@/components/features/agents/agent-chat/agent-chat";
 import { deriveAgentChatReadiness } from "@/components/features/agents/agent-chat/agent-chat-readiness";
 import { resolveAgentChatRuntimePresentation } from "@/components/features/agents/agent-chat/agent-chat-runtime-presentation";
@@ -24,7 +24,6 @@ import { getAgentSessionWaitingInputPlaceholder } from "@/lib/agent-session-wait
 import { errorMessage } from "@/lib/errors";
 import { repoRuntimeReadinessTargetForRuntime } from "@/lib/repo-runtime-readiness";
 import { useRepoRuntimeReadiness } from "@/lib/use-repo-runtime-readiness";
-import { resolveAgentStudioSendDraftParts } from "@/pages/agents/session-actions/agent-studio-send-draft";
 import { useRuntimeAvailabilityContext } from "@/state/app-state-contexts";
 import {
   useAgentOperations,
@@ -42,10 +41,14 @@ import {
   deriveLoadedAgentSessionTranscriptState,
   derivePendingSelectedSessionTranscriptState,
 } from "@/state/operations/agent-orchestrator/transcript/session-transcript-state";
-import { runtimeCatalogQueryKeys } from "@/state/queries/runtime-catalog";
+import {
+  repoRuntimeCatalogQueryOptions,
+  runtimeCatalogQueryKeys,
+} from "@/state/queries/runtime-catalog";
+import { createWorkspaceSessionChatDraftPersistence } from "./workspace-session-chat-draft";
 import type { ActiveWorkspace } from "@/types/state-slices";
 import { useWorkspaceSessionModelPicker } from "./use-workspace-session-model-picker";
-import { useMountedRef } from "./use-mounted-ref";
+import { useWorkspaceSessionChatActions } from "./use-workspace-session-chat-actions";
 
 type WorkspaceSessionChatProps = {
   workspace: ActiveWorkspace;
@@ -61,8 +64,14 @@ export function WorkspaceSessionChat({
   reusablePrompts,
 }: WorkspaceSessionChatProps): ReactElement {
   const identity = useMemo(() => workspaceSessionIdentity(record), [record]);
-  const sessionKey = agentSessionIdentityKey(identity);
+  const sessionKey = identity ? agentSessionIdentityKey(identity) : null;
   const session = useAgentSession(identity);
+  const actions = useWorkspaceSessionChatActions(workspace, record);
+  const { isSending, isStarting, isSavingModel, updateDraftModel } = actions;
+  const draftPersistence = useMemo(
+    () => createWorkspaceSessionChatDraftPersistence(workspace.workspaceId, record.id),
+    [workspace.workspaceId, record.id],
+  );
   const operations = useAgentOperations();
   const readModel = useAgentSessionReadModelState();
   const runtime = useRuntimeAvailabilityContext();
@@ -74,38 +83,96 @@ export function WorkspaceSessionChat({
   const selectedModel = record.selectedModel ?? session?.selectedModel ?? null;
   const runtimeData = useSessionRuntimeData({
     repoPath: workspace.repoPath,
-    selectedSession: { identity, selectedModel, sessionAssociation: { kind: "repository" } },
+    selectedSession:
+      identity && !isStarting
+        ? { identity, selectedModel, sessionAssociation: { kind: "repository" } }
+        : null,
     runtimeDefinitions: runtime.allRuntimeDefinitions,
     repoReadinessState: runtimeReadiness.state,
     loadRuntimeCatalog: runtime.loadRepoRuntimeCatalog,
     readSessionTodos: operations.readSessionTodos,
   });
-  useSelectedSessionHistoryLoad({ session, repoReadinessState: runtimeReadiness.state });
-  const contextError = useSelectedSessionContextLoad({
-    session,
+  const catalogQuery = useQuery({
+    ...repoRuntimeCatalogQueryOptions(
+      { repoPath: workspace.repoPath, runtimeKind: record.runtimeKind },
+      runtime.loadRepoRuntimeCatalog,
+    ),
+    enabled: runtimeReadiness.state === "ready",
+  });
+  const modelCatalog = catalogQuery.data ?? null;
+  const catalogError = catalogQuery.error ? errorMessage(catalogQuery.error) : null;
+  const isLoadingModelCatalog = catalogQuery.isFetching;
+  useSelectedSessionHistoryLoad({
+    session: isStarting ? null : session,
     repoReadinessState: runtimeReadiness.state,
   });
-  const picker = useWorkspaceSessionModelPicker(workspace.repoPath, {
-    identity,
-    selection: selectedModel,
-    catalog: runtimeData.modelCatalog,
-    isLoading: runtimeData.isLoadingModelCatalog,
-    error: runtimeData.catalogError,
-    retry: () =>
+  const contextError = useSelectedSessionContextLoad({
+    session: isStarting ? null : session,
+    repoReadinessState: runtimeReadiness.state,
+  });
+  const retryModelCatalog = useCallback(
+    () =>
       queryClient.invalidateQueries({
         queryKey: runtimeCatalogQueryKeys.repo(workspace.repoPath, record.runtimeKind),
       }),
-    update: operations.updateAgentSessionModel,
-  });
-  const promptInputRuntime = useMemo(
-    () =>
-      resolveChatComposerPromptInputRuntime({
-        workspaceRepoPath: workspace.repoPath,
-        repoReadinessState: runtimeReadiness.state,
-        source: { kind: "session", session: identity },
-      }),
-    [identity, runtimeReadiness.state, workspace.repoPath],
+    [queryClient, record.runtimeKind, workspace.repoPath],
   );
+  const modelTarget = useMemo(
+    () => ({
+      identity,
+      runtimeKind: record.runtimeKind,
+      updateDraft: updateDraftModel,
+      selection: selectedModel,
+      catalog: modelCatalog,
+      isLoading: isLoadingModelCatalog,
+      error: catalogError,
+      retry: retryModelCatalog,
+      update: operations.updateAgentSessionModel,
+    }),
+    [
+      identity,
+      record.runtimeKind,
+      updateDraftModel,
+      selectedModel,
+      modelCatalog,
+      isLoadingModelCatalog,
+      catalogError,
+      retryModelCatalog,
+      operations.updateAgentSessionModel,
+    ],
+  );
+  const picker = useWorkspaceSessionModelPicker(workspace.repoPath, modelTarget);
+  const runtimePresentation = useMemo(
+    () =>
+      resolveAgentChatRuntimePresentation({
+        runtimeDefinitions: runtime.allRuntimeDefinitions,
+        runtimeKind: record.runtimeKind,
+      }),
+    [runtime.allRuntimeDefinitions, record.runtimeKind],
+  );
+  const promptInputRuntime = useMemo(() => {
+    const resolved = resolveChatComposerPromptInputRuntime({
+      workspaceRepoPath: workspace.repoPath,
+      repoReadinessState: runtimeReadiness.state,
+      source: identity
+        ? { kind: "session", session: identity }
+        : { kind: "repo", runtimeKind: record.runtimeKind },
+    });
+    if (resolved.state !== "available") return resolved;
+    return {
+      ...resolved,
+      runtimeRef: {
+        ...resolved.runtimeRef,
+        workingDirectory: record.executionTarget.workingDirectory,
+      },
+    };
+  }, [
+    identity,
+    runtimeReadiness.state,
+    workspace.repoPath,
+    record.runtimeKind,
+    record.executionTarget.workingDirectory,
+  ]);
   const support = resolveRuntimePromptInputSupport({
     runtimeDefinitions: runtime.allRuntimeDefinitions,
     runtimeKind: record.runtimeKind,
@@ -143,7 +210,7 @@ export function WorkspaceSessionChat({
   );
   const contextUsage = useSelectedSessionContextUsage({
     selectedSession: session,
-    sessionModelCatalog: runtimeData.modelCatalog,
+    sessionModelCatalog: modelCatalog,
     selectedModelEntry: picker.selectedModelEntry,
   });
   const observationReady = readModel.sessionReadModelLoadState.kind === "ready";
@@ -152,15 +219,20 @@ export function WorkspaceSessionChat({
   const activityState =
     session && observationReady ? getAgentSessionActivityStateFromSession(session) : null;
   const isWorking = isAgentSessionActivityWorking(activityState);
-  const transcriptState = session
-    ? deriveLoadedAgentSessionTranscriptState({
-        session,
-        repoReadinessState: runtimeReadiness.state,
-      })
-    : derivePendingSelectedSessionTranscriptState({
-        readModelLoadState: readModel.sessionReadModelLoadState,
-        repoReadinessState: runtimeReadiness.state,
-      });
+  let transcriptState;
+  if (!identity) {
+    transcriptState = { kind: "empty" as const, reason: "sessionless" as const };
+  } else if (session) {
+    transcriptState = deriveLoadedAgentSessionTranscriptState({
+      session,
+      repoReadinessState: runtimeReadiness.state,
+    });
+  } else {
+    transcriptState = derivePendingSelectedSessionTranscriptState({
+      readModelLoadState: readModel.sessionReadModelLoadState,
+      repoReadinessState: runtimeReadiness.state,
+    });
+  }
   const readiness = deriveAgentChatReadiness({
     transcriptState,
     runtimeReadiness,
@@ -170,10 +242,13 @@ export function WorkspaceSessionChat({
     },
     failedTranscriptAction: {
       label: "Retry",
-      onAction: () => void operations.loadAgentSessionHistory(identity),
+      onAction: () => {
+        if (identity) void operations.loadAgentSessionHistory(identity);
+      },
     },
   });
-  const canInteract = readiness.interactionEnabled && observationReady && !targetFault;
+  const canInteract =
+    readiness.interactionEnabled && observationReady && !targetFault && !isSavingModel;
   const pendingApprovals = session?.pendingApprovals ?? [];
   const pendingQuestions = session?.pendingQuestions ?? [];
   const approvalActions = useAgentSessionApprovalActions({
@@ -188,21 +263,20 @@ export function WorkspaceSessionChat({
     canAnswerQuestions: canInteract,
     answerAgentQuestion: operations.answerAgentQuestion,
   });
-  const [isSending, setSending] = useState(false);
-  const [sendError, setSendError] = useState<string | null>(null);
-  const mounted = useMountedRef();
   const transcript = resolveAgentChatTranscriptPresentation({
+    repoPath: workspace.repoPath,
     sessionKey,
-    session: session
-      ? {
-          ...identity,
-          title: workspaceSessionTitle(record),
-          activityState,
-          runtimeStatusMessage: session.runtimeStatusMessage,
-          messages: session.messages,
-        }
-      : null,
-    target: { ...identity, sessionScope: { kind: "repository" } },
+    session:
+      session && identity
+        ? {
+            ...identity,
+            title: workspaceSessionTitle(record),
+            activityState,
+            runtimeStatusMessage: session.runtimeStatusMessage,
+            messages: session.messages,
+          }
+        : null,
+    target: identity ? { ...identity, sessionScope: { kind: "repository" } } : null,
     state: transcriptState,
     notice: targetFault
       ? {
@@ -217,21 +291,18 @@ export function WorkspaceSessionChat({
   const surface = useAgentChatSurfaceModel({
     transcript,
     chatSettings,
-    modelCatalog: runtimeData.modelCatalog,
+    modelCatalog,
     sessionAuxiliaryError:
-      sendError ??
+      actions.error ??
       fault?.message ??
       contextError ??
       runtimeData.contextError ??
       runtimeData.runtimePolicyError ??
       runtimeData.todosError ??
-      runtimeData.catalogError ??
+      catalogError ??
       null,
     interactionEnabled: canInteract,
-    runtimePresentation: resolveAgentChatRuntimePresentation({
-      runtimeDefinitions: runtime.allRuntimeDefinitions,
-      runtimeKind: record.runtimeKind,
-    }),
+    runtimePresentation,
     emptyState: null,
     pendingApprovalRequests: pendingApprovals,
     pendingQuestionRequests: pendingQuestions,
@@ -250,8 +321,8 @@ export function WorkspaceSessionChat({
     },
     composer: {
       displayedSessionKey: sessionKey,
-      selectedSession: { ...identity, selectedModel },
-      isSessionModelCatalogLoading: runtimeData.isLoadingModelCatalog,
+      selectedSession: identity ? { ...identity, selectedModel } : null,
+      isSessionModelCatalogLoading: isLoadingModelCatalog,
       isSessionWorking: isWorking,
       isWaitingInput: activityState === "waiting_input",
       waitingInputPlaceholder: getAgentSessionWaitingInputPlaceholder({
@@ -261,36 +332,21 @@ export function WorkspaceSessionChat({
       busySendBlockedReason: null,
       canStopSession: isWorking || activityState === "waiting_input",
       stopAgentSession: operations.stopAgentSession,
-      isReadOnly:
-        Boolean(targetFault) || transcriptState.kind === "failed" || session?.status === "error",
+      isReadOnly: Boolean(targetFault) || transcriptState.kind === "failed",
       readOnlyReason:
         targetFault?.message ??
         session?.runtimeStatusMessage ??
         (transcriptState.kind === "failed" ? "Retry loading this session before sending." : null),
-      draftScope: { key: `${workspace.workspaceId}:${sessionKey}`, persistence: null },
-      onSend: async (draft) => {
-        if (isSending || !canInteract || !session) return false;
-        setSending(true);
-        setSendError(null);
-        try {
-          const parts = await resolveAgentStudioSendDraftParts({
-            draft,
-            reusablePrompts,
-            selectedModelDescriptor: picker.selectedModelEntry,
-            supportsAttachments: support.supportsAttachments,
-          });
-          if (!parts || !mounted.current) return false;
-          await operations.sendAgentMessage(identity, parts);
-          return true;
-        } catch (cause) {
-          if (mounted.current) setSendError(errorMessage(cause));
-          return false;
-        } finally {
-          if (mounted.current) setSending(false);
-        }
-      },
+      draftScope: { key: draftPersistence.targetKey, persistence: draftPersistence },
+      onSend: (draft) =>
+        actions.sendDraft(draft, {
+          canSend: canInteract,
+          reusablePrompts,
+          selectedModelDescriptor: picker.selectedModelEntry,
+          supportsAttachments: support.supportsAttachments,
+        }),
       isSending,
-      isStarting: false,
+      isStarting,
       contextUsage,
       selectedModelSelection: selectedModel,
       selectedModelDescriptor: picker.selectedModelEntry,
@@ -308,7 +364,7 @@ export function WorkspaceSessionChat({
       variantOptions: picker.variantOptions,
       onSelectAgent: picker.handleSelectAgentProfile,
       onSelectVariant: picker.handleSelectVariant,
-      modelPicker: { ...picker.modelPicker, onOpenChange: () => {} },
+      modelPicker: picker.modelPicker,
     },
   });
   return <AgentChatSurface model={surface} />;

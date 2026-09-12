@@ -55,6 +55,68 @@ const sync = (
 });
 
 describe("createEventPublishingTaskService", () => {
+  test("separates a model save from publication and keeps the same publication rules", async () => {
+    const events: Array<{ changes: { taskIds: string[]; removedTaskIds: string[] } }> = [];
+    let saves = 0;
+    const service = createEventPublishingTaskService({
+      taskService: fakeTaskService({
+        agentSessionUpdateModel: () =>
+          Effect.sync(() => {
+            saves += 1;
+            return true;
+          }),
+      }),
+      taskSyncService: sync(events),
+    });
+    const input = {
+      repoPath: "/repo",
+      taskId: "task-1",
+      identity: {
+        externalSessionId: "session-1",
+        runtimeKind: "codex" as const,
+        workingDirectory: "/repo",
+      },
+      selectedModel: { runtimeKind: "codex" as const, providerId: "openai", modelId: "model" },
+    };
+    const saved = await Effect.runPromise(
+      service.agentSessionUpdateModelDeferredPublication(input),
+    );
+    expect(saved.updated).toBe(true);
+    expect(saves).toBe(1);
+    expect(events).toEqual([]);
+    await Effect.runPromise(saved.publish);
+    expect(events).toEqual([{ changes: { taskIds: ["task-1"], removedTaskIds: [] } }]);
+    await Effect.runPromise(service.agentSessionUpdateModel(input));
+    expect(saves).toBe(2);
+    expect(events).toHaveLength(2);
+    expect(events[1]).toEqual(events[0]);
+  });
+
+  test("does not publish a failed model save", async () => {
+    const events: Array<{ changes: { taskIds: string[]; removedTaskIds: string[] } }> = [];
+    const failure = new HostOperationError({ operation: "model-save", message: "Save failed" });
+    const service = createEventPublishingTaskService({
+      taskService: fakeTaskService({ agentSessionUpdateModel: () => Effect.fail(failure) }),
+      taskSyncService: sync(events),
+    });
+    const result = await Effect.runPromise(
+      service
+        .agentSessionUpdateModelDeferredPublication({
+          repoPath: "/repo",
+          taskId: "task-1",
+          identity: {
+            externalSessionId: "session-1",
+            runtimeKind: "codex",
+            workingDirectory: "/repo",
+          },
+          selectedModel: null,
+        })
+        .pipe(Effect.flip),
+    );
+    expect(result).toBe(failure);
+    expect(events).toEqual([]);
+  });
+
   test.each(["updateTask", "directMerge", "setPlan", "setSpec"] as const)(
     "preserves the %s failure when snapshot publication also fails",
     async (method) => {

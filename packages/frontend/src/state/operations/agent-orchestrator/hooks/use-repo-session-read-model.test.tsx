@@ -1,4 +1,6 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
+import * as approvalPolicy from "../session-read-model/pending-approval-policy";
+import * as workspaceRecords from "../session-read-model/workspace-session-records";
 import type {
   AgentSessionLiveEnvelope,
   AgentSessionLiveRefreshInput,
@@ -168,6 +170,7 @@ const createState = (
 
   return {
     callOrder,
+    resetWorkspace: sessionStore.resetWorkspace,
     getSession: () =>
       sessionStore.getSessionSnapshot({
         externalSessionId: record.externalSessionId,
@@ -215,6 +218,217 @@ const createRepositoryConflictRetryState = (
   });
 
 describe("useRepoSessionReadModel", () => {
+  test("commits activity and child input before the transcript consumer runs", async () => {
+    const root = snapshot();
+    const child = snapshot({
+      ref: { ...root.ref, externalSessionId: "child" },
+      parentExternalSessionId: root.ref.externalSessionId,
+      activity: "waiting_for_question",
+      pendingQuestions: [{ requestId: "question", questions: [] }],
+    });
+    const state = createState((emit) =>
+      emit({ type: "snapshot", repoPath: "/repo", sessions: [root, child] }),
+    );
+    const observed: Array<{ status: string | undefined; questions: number | undefined }> = [];
+    state.props.transcriptEvents = {
+      close: () => {},
+      handle: (event) => {
+        observed.push({
+          status: state.getStoredSession(event.sessionRef)?.status,
+          questions: state.getSession()?.pendingQuestions.length,
+        });
+      },
+    };
+    try {
+      await state.harness.mount();
+      await state.harness.waitFor((value) => value.sessionReadModelLoadState.kind === "ready");
+      expect(state.getSession()?.pendingQuestions).toHaveLength(1);
+      await state.harness.run(() => {
+        state.emit({
+          type: "transcript_event",
+          event: {
+            type: "assistant_delta",
+            channel: "text",
+            messageId: "message",
+            delta: "Text",
+            timestamp: "2026-09-12T10:00:00Z",
+            externalSessionId: root.ref.externalSessionId,
+            sessionRef: root.ref,
+          },
+        });
+        state.emit({
+          type: "transcript_event",
+          event: {
+            type: "session_finished",
+            message: "Finished",
+            timestamp: "2026-09-12T10:00:01Z",
+            externalSessionId: "child",
+            sessionRef: child.ref,
+          },
+        });
+        state.emit({
+          type: "transcript_event",
+          event: {
+            type: "session_finished",
+            message: "Finished",
+            timestamp: "2026-09-12T10:00:02Z",
+            externalSessionId: root.ref.externalSessionId,
+            sessionRef: root.ref,
+          },
+        });
+      });
+      expect(observed).toEqual([
+        { status: "running", questions: 1 },
+        { status: "idle", questions: 0 },
+        { status: "idle", questions: 0 },
+      ]);
+    } finally {
+      await state.harness.unmount();
+      state.queryClient.clear();
+    }
+  });
+  test("keeps text updates out of approval and target scans with 200 mixed sessions", async () => {
+    const workflowRecords = Array.from({ length: 100 }, (_, index) => ({
+      ...record,
+      externalSessionId: `task-${index}`,
+    }));
+    const entries: WorkspaceSession[] = Array.from({ length: 100 }, (_, index) => ({
+      id: `workspace-${index}`,
+      runtimeKind: "codex",
+      externalSessionId: `workspace-${index}`,
+      executionTarget: { kind: "local_repo_root", workingDirectory: "/repo" },
+      roleSnapshot: null,
+      selectedModel: null,
+      generatedTitle: null,
+      manualTitle: null,
+      createdAt: 0,
+      updatedAt: 0,
+      archivedAt: null,
+    }));
+    const sessions = [
+      ...workflowRecords.map((entry) =>
+        snapshot({
+          ref: { ...snapshot().ref, externalSessionId: entry.externalSessionId },
+          activity: "running",
+        }),
+      ),
+      ...entries.map((entry) =>
+        snapshot({
+          ref: { ...snapshot().ref, workingDirectory: "/repo", externalSessionId: entry.id },
+          activity: "running",
+          repositoryScope: { kind: "repository" },
+        }),
+      ),
+    ];
+    configureShellBridge(
+      createShellBridgeFixture({
+        client: { workspaceSessionListActive: async () => entries },
+        bridge: { subscribeWorkspaceSessionUpdates: async () => () => {} },
+      }),
+    );
+    const state = createState(
+      (emit) => emit({ type: "snapshot", repoPath: "/repo", sessions }),
+      workflowRecords,
+    );
+    state.props.workspaceId = "workspace-A";
+    const policy = spyOn(approvalPolicy, "collectPendingApprovalPolicyActions");
+    const targets = spyOn(workspaceRecords, "reconcileWorkspaceSessionTargetFaults");
+    try {
+      await state.harness.mount();
+      await state.harness.waitFor((value) => value.sessionReadModelLoadState.kind === "ready");
+      expect(policy).toHaveBeenCalled();
+      expect(targets).toHaveBeenCalled();
+      policy.mockClear();
+      targets.mockClear();
+      await state.harness.run(() => {
+        for (let index = 0; index < 10; index += 1)
+          state.emit({
+            type: "transcript_event",
+            event: {
+              type: "assistant_delta",
+              channel: "text",
+              externalSessionId: "workspace-0",
+              messageId: "message",
+              delta: `Text ${index}`,
+              timestamp: "2026-09-12T10:00:00Z",
+              sessionRef: {
+                repoPath: "/repo",
+                runtimeKind: "codex",
+                workingDirectory: "/repo",
+                externalSessionId: "workspace-0",
+              },
+            },
+          });
+      });
+      expect(state.transcriptEvents.handle).toHaveBeenCalledTimes(10);
+      expect(policy).not.toHaveBeenCalled();
+      expect(targets).not.toHaveBeenCalled();
+    } finally {
+      policy.mockRestore();
+      targets.mockRestore();
+      await state.harness.unmount();
+      state.queryClient.clear();
+      configureShellBridge(createUnavailableShellBridge());
+    }
+  });
+  test("waits for workspace ownership before admitting an unbound native root on cold load", async () => {
+    const loaded = createDeferred<WorkspaceSession[]>();
+    const entry: WorkspaceSession = {
+      id: "workspace-session",
+      runtimeKind: record.runtimeKind,
+      externalSessionId: record.externalSessionId,
+      executionTarget: { kind: "local_repo_root", workingDirectory: record.workingDirectory },
+      roleSnapshot: null,
+      selectedModel: null,
+      generatedTitle: null,
+      manualTitle: null,
+      createdAt: 1000,
+      updatedAt: 1000,
+      archivedAt: null,
+    };
+    const native = snapshot({
+      activity: "waiting_for_question",
+      pendingQuestions: [{ requestId: "answer", questions: [] }],
+    });
+    configureShellBridge(
+      createShellBridgeFixture({
+        client: { workspaceSessionListActive: () => loaded.promise },
+        bridge: { subscribeWorkspaceSessionUpdates: async () => () => {} },
+      }),
+    );
+    const state = createState(
+      (emit) => emit({ type: "snapshot", repoPath: "/repo", sessions: [native] }),
+      [],
+    );
+    state.props.workspaceId = "workspace-A";
+    // A cold store has no task record and no earlier native projection.
+    state.resetWorkspace(null);
+    state.resetWorkspace("/repo");
+    try {
+      await state.harness.mount();
+      expect(state.observeAgentSessionLive).not.toHaveBeenCalled();
+      await state.harness.run(() => loaded.resolve([entry]));
+      await state.harness.waitFor((value) => value.sessionReadModelLoadState.kind === "ready");
+      expect(state.getSession()).toMatchObject({
+        sessionAssociation: { kind: "repository" },
+        status: "idle",
+        pendingQuestions: [{ requestId: "answer", questions: [] }],
+      });
+      await state.harness.run(() =>
+        state.emit({
+          type: "snapshot",
+          repoPath: "/repo",
+          sessions: [native],
+          isConnectionSnapshot: true,
+        }),
+      );
+      expect(state.getSession()?.pendingQuestions).toHaveLength(1);
+    } finally {
+      await state.harness.unmount();
+      state.queryClient.clear();
+      configureShellBridge(createUnavailableShellBridge());
+    }
+  });
   test("keeps target faults through transcript events and clears them after a valid snapshot", async () => {
     const entry: WorkspaceSession = {
       id: "workspace-session",

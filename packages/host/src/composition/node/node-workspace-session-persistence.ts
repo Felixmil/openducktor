@@ -5,13 +5,18 @@ import {
 } from "../../application/workspaces/workspace-session-runtime-persistence";
 import { HostOperationError, HostResourceError } from "../../effect/host-errors";
 import type { HostEventBusPort } from "../../events/host-event-bus";
+import { createWorkspaceSessionOperationGate } from "../../application/workspaces/workspace-session-operation-gate";
 
 export const createNodeWorkspaceSessionPersistence = ({
   eventBus,
   ...dependencies
-}: Omit<Parameters<typeof createWorkspaceSessionRuntimePersistence>[0], "publishUpdated"> & {
+}: Omit<
+  Parameters<typeof createWorkspaceSessionRuntimePersistence>[0],
+  "publishUpdated" | "operationGate"
+> & {
   eventBus: HostEventBusPort | undefined;
 }) => {
+  const operationGate = createWorkspaceSessionOperationGate();
   const publishUpdated: WorkspaceSessionUpdatedPublisher = (workspaceId, session) =>
     Effect.try({
       try: () => {
@@ -34,7 +39,12 @@ export const createNodeWorkspaceSessionPersistence = ({
         }),
     });
   return {
-    persistence: createWorkspaceSessionRuntimePersistence({ ...dependencies, publishUpdated }),
+    persistence: createWorkspaceSessionRuntimePersistence({
+      ...dependencies,
+      publishUpdated,
+      operationGate,
+    }),
     publishUpdated,
+    operationGate,
   };
 };

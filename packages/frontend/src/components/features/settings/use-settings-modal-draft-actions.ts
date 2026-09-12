@@ -17,6 +17,11 @@ type UseSettingsModalDraftActionsArgs = {
 
 export type SettingsModalDraftActions = {
   updateSelectedRepoConfig: (updater: (current: SettingsRepoConfig) => SettingsRepoConfig) => void;
+  updateCustomAgentRoles: (
+    updater: (
+      current: SettingsSnapshot["customAgentRoles"],
+    ) => SettingsSnapshot["customAgentRoles"],
+  ) => void;
   updateGlobalGitConfig: (updater: (current: GlobalGitConfig) => GlobalGitConfig) => void;
   updateGlobalChatSettings: (
     updater: (current: SettingsSnapshot["chat"]) => SettingsSnapshot["chat"],
@@ -169,6 +174,17 @@ export const useSettingsModalDraftActions = ({
     [updateSnapshotSection],
   );
 
+  const updateCustomAgentRoles = useCallback(
+    (
+      updater: (
+        current: SettingsSnapshot["customAgentRoles"],
+      ) => SettingsSnapshot["customAgentRoles"],
+    ): void => {
+      updateSnapshotSection("customAgentRoles", updater);
+    },
+    [updateSnapshotSection],
+  );
+
   const updateGlobalKanbanSettings = useCallback(
     (updater: (current: SettingsSnapshot["kanban"]) => SettingsSnapshot["kanban"]): void => {
       updateSnapshotSection("kanban", updater);
@@ -235,6 +251,7 @@ export const useSettingsModalDraftActions = ({
   );
 
   return {
+    updateCustomAgentRoles,
     updateSelectedRepoConfig,
     updateGlobalGitConfig,
     updateGlobalChatSettings,

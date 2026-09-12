@@ -4,7 +4,7 @@ import {
   type SettingsSnapshot,
 } from "@openducktor/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { errorMessage } from "@/lib/errors";
 import { settingsSnapshotQueryOptions } from "@/state/queries/workspace";
 import { AGENT_MODEL_FAVORITES_MUTATION_KEY } from "./agent-model-favorites";
@@ -65,6 +65,9 @@ export function useAgentModelFavorites({
   });
   const favorites = settingsQuery.data?.agentModelFavorites ?? null;
   const readError = settingsQuery.error ? errorMessage(settingsQuery.error) : null;
+  const { mutate, isPending, variables } = mutation;
+  const { refetch, isLoading } = settingsQuery;
+  const mutationError = mutation.error ? errorMessage(mutation.error) : null;
 
   const isFavorite = useCallback(
     (favorite: AgentModelFavorite): boolean =>
@@ -74,37 +77,50 @@ export function useAgentModelFavorites({
 
   const toggleFavorite = useCallback(
     (favorite: AgentModelFavorite): void => {
-      if (favorites === null || readError !== null || mutation.isPending) {
+      if (favorites === null || readError !== null || isPending) {
         return;
       }
-      mutation.mutate({
+      mutate({
         favorite,
         shouldBeFavorite: !isFavorite(favorite),
       });
     },
-    [favorites, isFavorite, mutation, readError],
+    [favorites, isFavorite, isPending, mutate, readError],
   );
 
   const retryRead = useCallback((): void => {
-    void settingsQuery.refetch();
-  }, [settingsQuery]);
+    void refetch();
+  }, [refetch]);
 
   const retryMutation = useCallback((): void => {
-    if (favorites !== null && readError === null && mutation.variables && !mutation.isPending) {
-      mutation.mutate(mutation.variables);
+    if (favorites !== null && readError === null && variables && !isPending) {
+      mutate(variables);
     }
-  }, [favorites, mutation, readError]);
+  }, [favorites, isPending, mutate, readError, variables]);
 
-  return {
-    favorites,
-    isLoading: settingsQuery.isLoading,
-    readError,
-    isMutationPending: mutation.isPending,
-    mutationError: mutation.error ? errorMessage(mutation.error) : null,
-    canMutate: favorites !== null && readError === null && !mutation.isPending,
-    isFavorite,
-    toggleFavorite,
-    retryRead,
-    retryMutation,
-  };
+  return useMemo(
+    () => ({
+      favorites,
+      isLoading,
+      readError,
+      isMutationPending: isPending,
+      mutationError,
+      canMutate: favorites !== null && readError === null && !isPending,
+      isFavorite,
+      toggleFavorite,
+      retryRead,
+      retryMutation,
+    }),
+    [
+      favorites,
+      isLoading,
+      readError,
+      isPending,
+      mutationError,
+      isFavorite,
+      toggleFavorite,
+      retryRead,
+      retryMutation,
+    ],
+  );
 }

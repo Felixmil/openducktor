@@ -24,6 +24,7 @@ import { repositoryGitProviderContextQueryKeys } from "../../queries/git-provide
 import { runtimeQueryKeys } from "../../queries/runtime";
 import { repoTaskDataQueryOptions, type RepoTaskData, taskQueryKeys } from "../../queries/tasks";
 import { settingsSnapshotQueryOptions, workspaceQueryKeys } from "../../queries/workspace";
+import { customAgentRolesQueryOptions } from "../../queries/workspace-sessions";
 import { host } from "../shared/host";
 import { useRepoSettingsOperations } from "./use-repo-settings-operations";
 
@@ -1104,6 +1105,25 @@ describe("use-repo-settings-operations", () => {
       expect(run.invalidateQueries).not.toHaveBeenCalled();
       expect(run.resetQueries).not.toHaveBeenCalled();
       expect(run.applyWorkspaceRecords).toHaveBeenCalledTimes(1);
+    } finally {
+      await run.cleanup();
+    }
+  });
+
+  test("invalidates only the role catalog when custom roles change", async () => {
+    const run = await startSettingsSave({
+      previousSnapshot: createSettingsSnapshotFixture(),
+      normalizedSnapshot: createSettingsSnapshotFixture({
+        customAgentRoles: [{ id: "reviewer", name: "Reviewer", systemPrompt: "Review the code." }],
+      }),
+    });
+
+    try {
+      await run.save;
+      expect(run.invalidateQueries.mock.calls).toEqual([
+        [{ queryKey: customAgentRolesQueryOptions().queryKey }],
+      ]);
+      expect(run.resetQueries).not.toHaveBeenCalled();
     } finally {
       await run.cleanup();
     }

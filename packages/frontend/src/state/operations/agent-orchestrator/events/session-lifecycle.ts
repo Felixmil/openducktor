@@ -97,17 +97,6 @@ const resolveFinalAssistantSnapshot = ({
   };
 };
 
-export const handleSessionStarted = (
-  context: Pick<SessionLifecycleEventContext, "session" | "store">,
-  _event: Extract<SessionEvent, { type: "session_started" }>,
-): void => {
-  context.store.updateSession(context.session.identity, (current) => ({
-    ...current,
-    status: "running",
-    runtimeStatusMessage: null,
-  }));
-};
-
 export const handleAssistantMessage = (
   context: Pick<SessionLifecycleEventContext, "session" | "store" | "turn">,
   event: AssistantMessageEvent,
@@ -164,7 +153,6 @@ export const handleAssistantMessage = (
     }
     return {
       ...current,
-      pendingUserMessageStartedAt: undefined,
       messages: sourceTextMessage
         ? replaceSessionMessageById(settledOwner, sourceTextMessage.id, assistantMessage)
         : upsertSessionMessage(settledOwner, assistantMessage),
@@ -205,7 +193,6 @@ export const handleUserMessage = (
   context.store.updateSession(context.session.identity, (current) => {
     return {
       ...current,
-      runtimeStatusMessage: null,
       messages: upsertUserSessionMessage(current, toUserChatMessage(event)),
     };
   });
@@ -219,36 +206,20 @@ export const handleSessionStatus = (
 
   if (status.type === "busy") {
     context.turn.recordTurnActivityTimestamp(context.session.key, event.timestamp);
-    context.store.updateSession(context.session.identity, (current) =>
-      current.status === "error"
-        ? current
-        : {
-            ...current,
-            status: "running",
-            runtimeStatusMessage: status.message,
-            pendingUserMessageStartedAt: undefined,
-          },
-    );
     return;
   }
 
   if (status.type === "retry") {
     const retryMessage = normalizeRetryStatusMessage(status.message);
-    context.store.updateSession(context.session.identity, (current) =>
-      current.status === "error"
-        ? current
-        : {
-            ...current,
-            status: "running",
-            pendingUserMessageStartedAt: undefined,
-            messages: upsertSessionMessage(current, {
-              id: `retry:${status.attempt}`,
-              role: "system",
-              content: `Retry ${status.attempt}: ${retryMessage}`,
-              timestamp: event.timestamp,
-            }),
-          },
-    );
+    context.store.updateSession(context.session.identity, (current) => ({
+      ...current,
+      messages: upsertSessionMessage(current, {
+        id: `retry:${status.attempt}`,
+        role: "system",
+        content: `Retry ${status.attempt}: ${retryMessage}`,
+        timestamp: event.timestamp,
+      }),
+    }));
     return;
   }
 
@@ -347,12 +318,7 @@ export const handleSessionError = (
     const current = recordImageGenerationEnd(previous, event.timestamp, "runtime_failure");
     return {
       ...current,
-      pendingUserMessageStartedAt: undefined,
-      runtimeStatusMessage: null,
-      status: userStopAborted ? "stopped" : "error",
       stopRequestedAt: null,
-      pendingApprovals: [],
-      pendingQuestions: [],
       messages: userStopAborted
         ? removeRunningSessionCompactionNotices(
             settleTerminalMessages(current, event.timestamp, {
@@ -388,8 +354,6 @@ export const handleTurnError = (
     const current = recordImageGenerationEnd(previous, event.timestamp, "runtime_failure");
     return {
       ...current,
-      pendingUserMessageStartedAt: undefined,
-      runtimeStatusMessage: null,
       messages: appendSessionMessage(
         {
           externalSessionId: current.externalSessionId,
@@ -425,14 +389,8 @@ export const handleSessionFinished = (
   context.store.updateSession(context.session.identity, (previous) => {
     const current = recordImageGenerationEnd(previous, event.timestamp, "turn_ended");
     const appendUserStoppedNotice = Boolean(current.stopRequestedAt);
-    let terminalStatus: AgentSessionState["status"] = appendUserStoppedNotice ? "stopped" : "idle";
-    if (current.status === "error") {
-      terminalStatus = "error";
-    }
     return {
       ...current,
-      pendingUserMessageStartedAt: undefined,
-      runtimeStatusMessage: null,
       messages: settleTerminalMessages(
         current,
         event.timestamp,
@@ -444,9 +402,6 @@ export const handleSessionFinished = (
             }
           : {},
       ),
-      pendingApprovals: [],
-      pendingQuestions: [],
-      status: terminalStatus,
       stopRequestedAt: null,
     };
   });

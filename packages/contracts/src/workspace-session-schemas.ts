@@ -13,9 +13,21 @@ const workingDirectorySchema = z.string().regex(/^(?:\/|[a-zA-Z]:[\\/]|\\\\)/, {
 
 export const workspaceSessionExecutionTargetSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("local_repo_root"), workingDirectory: workingDirectorySchema }),
-  z.strictObject({ kind: z.literal("local_worktree"), workingDirectory: workingDirectorySchema }),
+  z.strictObject({
+    kind: z.literal("local_worktree"),
+    workingDirectory: workingDirectorySchema,
+    branchName: identitySchema,
+    worktreeState: z.enum(["present", "removed"]),
+  }),
 ]);
 export type WorkspaceSessionExecutionTarget = z.infer<typeof workspaceSessionExecutionTargetSchema>;
+
+export const workspaceSessionArchivePreviewSchema = z.strictObject({
+  branchName: identitySchema,
+  worktreeExists: z.boolean(),
+  hasUncommittedChanges: z.boolean(),
+});
+export type WorkspaceSessionArchivePreview = z.infer<typeof workspaceSessionArchivePreviewSchema>;
 
 export const customAgentRoleInputSchema = z.strictObject({
   name: z.string().trim().min(1),
@@ -38,7 +50,7 @@ export const workspaceSessionSchema = z
   .strictObject({
     id: identitySchema,
     runtimeKind: runtimeKindSchema,
-    externalSessionId: identitySchema,
+    externalSessionId: identitySchema.nullable(),
     executionTarget: workspaceSessionExecutionTargetSchema,
     roleSnapshot: workspaceSessionRoleSnapshotSchema.nullable(),
     selectedModel: agentSessionModelSelectionSchema.nullable(),

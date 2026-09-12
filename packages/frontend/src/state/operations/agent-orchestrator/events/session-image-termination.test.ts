@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import type { AgentSessionHistoryMessage } from "@openducktor/core";
+import type { AgentSessionTranscriptEvent } from "@openducktor/contracts";
 import { getAgentSession } from "@/state/agent-session-collection";
+import { applyAgentSessionLiveDelta } from "../session-read-model/agent-session-live-projection";
 import { applyLoadedSessionHistory } from "../support/session-history-chat-messages";
 import { createSessionTurnState } from "../support/session-turn-state";
 import {
@@ -93,9 +95,16 @@ for (const order of ["history-first", "terminal-first"] as const) {
       },
       { batchWindowMs: 0 },
     );
+    const handle = (event: AgentSessionTranscriptEvent) => {
+      sessionsRef.current = applyAgentSessionLiveDelta({
+        current: sessionsRef.current,
+        envelope: { type: "transcript_event", event },
+      });
+      consumer.handle(event);
+    };
     const load = () => updateSession(ref, (current) => applyLoadedSessionHistory(current, history));
     if (order === "history-first") load();
-    consumer.handle({
+    handle({
       type: "image_generation_settled",
       externalSessionId: ref.externalSessionId,
       sessionRef: ref,
@@ -104,7 +113,7 @@ for (const order of ["history-first", "terminal-first"] as const) {
       reason: "interrupted",
     });
     expect(getSession(sessionsRef).status).toBe("running");
-    consumer.handle({
+    handle({
       type: "session_idle",
       externalSessionId: ref.externalSessionId,
       sessionRef: ref,
@@ -116,7 +125,7 @@ for (const order of ["history-first", "terminal-first"] as const) {
     expect(getSession(sessionsRef).status).toBe("idle");
     const part = history[0]?.parts[0];
     if (part?.kind !== "image_generation") throw new Error("Missing image fixture");
-    consumer.handle({
+    handle({
       type: "assistant_part",
       externalSessionId: ref.externalSessionId,
       sessionRef: ref,
@@ -127,7 +136,7 @@ for (const order of ["history-first", "terminal-first"] as const) {
       status: "running",
       turnId: "new-turn",
     });
-    consumer.handle({
+    handle({
       type: "assistant_part",
       externalSessionId: ref.externalSessionId,
       sessionRef: ref,

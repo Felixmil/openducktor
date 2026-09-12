@@ -3,6 +3,7 @@ import {
   DEFAULT_AGENT_RUNTIMES,
   OPENCODE_RUNTIME_DESCRIPTOR,
   type WorkspaceSessionCreateInput,
+  repoConfigSchema,
 } from "@openducktor/contracts";
 import type { AgentModelCatalog } from "@openducktor/core";
 import { HostInvokeError } from "@openducktor/host-client";
@@ -89,6 +90,19 @@ function renderCreation(
     createShellBridgeFixture({
       client: {
         workspaceGetSettingsSnapshot: async () => snapshot,
+        workspaceGetRepoConfig: async () =>
+          repoConfigSchema.parse({
+            workspaceId: "a",
+            workspaceName: "A",
+            repoPath: "/repo",
+            branchPrefix: "odt",
+            defaultRuntimeKind: "opencode",
+          }),
+        gitGetBranches: async () => [
+          { name: "main", isRemote: false, isCurrent: true },
+          { name: "feature/existing", isRemote: false, isCurrent: false },
+          { name: "origin/remote-only", isRemote: true, isCurrent: false },
+        ],
         customAgentRoleList: async () => [
           { id: "alpha", name: "Alpha", systemPrompt: "Alpha prompt" },
           { id: "zeta", name: "Zeta", systemPrompt: "Zeta prompt" },
@@ -139,6 +153,59 @@ async function selectModel(view: ReturnType<typeof renderCreation>) {
     { timeout: 800 },
   );
 }
+
+test("matches the task modal width, separates footer actions and disables name autocomplete", () => {
+  const view = renderCreation(async () => {
+    throw new Error("Unexpected creation");
+  });
+  try {
+    expect(view.getByRole("dialog").classList.contains("sm:max-w-2xl")).toBe(true);
+    expect(view.getByLabelText("Name optional").getAttribute("autocomplete")).toBe("off");
+    const cancel = view.getByRole("button", { name: "Cancel" });
+    const create = view.getByRole("button", { name: "Create chat" });
+    expect(cancel.parentElement).toBe(create.parentElement);
+    expect(cancel.parentElement?.firstElementChild).toBe(cancel);
+    expect(cancel.parentElement?.classList.contains("justify-between")).toBe(true);
+    expect(cancel.parentElement?.classList.contains("sm:justify-between")).toBe(true);
+  } finally {
+    view.unmount();
+    configureShellBridge(createUnavailableShellBridge());
+  }
+});
+
+test("uses the task modal label-to-control gap for every form field", async () => {
+  const view = renderCreation(async () => {
+    throw new Error("Unexpected creation");
+  });
+  try {
+    await selectModel(view);
+    const fields = [
+      view.getByLabelText("Name optional").parentElement,
+      view.getByText("Runtime and model").parentElement,
+      view.getByText("Effort", { selector: "label" }).parentElement,
+      view.getByText("Runtime profile", { selector: "label" }).parentElement,
+      view.getByText("Custom role", { exact: false, selector: "label" }).parentElement,
+    ];
+    for (const field of fields) {
+      expect(field?.classList.contains("grid")).toBe(true);
+      expect(field?.classList.contains("gap-1.5")).toBe(true);
+      expect(field?.classList.contains("space-y-2")).toBe(false);
+    }
+    const roleSelect = view.getByRole("button", { name: "Custom role optional" });
+    const manageRoles = view.getByRole("button", { name: "Manage roles" });
+    expect(manageRoles.classList.contains("h-9")).toBe(true);
+    expect(roleSelect.parentElement).toBe(manageRoles.parentElement);
+    expect(roleSelect.parentElement?.classList.contains("grid-cols-[minmax(0,1fr)_auto]")).toBe(
+      true,
+    );
+    expect(roleSelect.compareDocumentPosition(manageRoles) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  } finally {
+    view.unmount();
+    configureShellBridge(createUnavailableShellBridge());
+  }
+});
 
 test("an ordinary creation failure retains inputs, re-enables the form and does not report success", async () => {
   let rejectCreation!: (cause: Error) => void;
@@ -211,6 +278,7 @@ test("creation keeps Role, Runtime Profile, Effort and location separate and blo
     fireEvent.click(view.getByRole("option", { name: "high" }));
     fireEvent.change(view.getByLabelText("Name optional"), { target: { value: "My session" } });
     fireEvent.click(view.getByRole("radio", { name: /New worktree/ }));
+    fireEvent.change(view.getByLabelText("Worktree name"), { target: { value: "my-feature" } });
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Create chat" }));
     });
@@ -227,6 +295,7 @@ test("creation keeps Role, Runtime Profile, Effort and location separate and blo
       },
       customAgentRoleId: "alpha",
       location: "local_worktree",
+      worktree: { mode: "from_name", name: "my-feature", branchName: null },
       manualTitle: "My session",
       confirmUncommittedChanges: false,
     });
@@ -266,6 +335,7 @@ test("dirty checkout confirmation requires a second explicit create and Cancel s
   try {
     await selectModel(view);
     fireEvent.click(view.getByRole("radio", { name: /New worktree/ }));
+    fireEvent.change(view.getByLabelText("Worktree name"), { target: { value: "my-feature" } });
     fireEvent.click(view.getByRole("button", { name: "Create chat" }));
     await view.findByText(
       "This checkout has uncommitted changes. The new worktree will not include them.",
@@ -279,6 +349,107 @@ test("dirty checkout confirmation requires a second explicit create and Cancel s
     await waitFor(() => expect(requests.length).toBe(2), { timeout: 800 });
     expect(requests[1]?.confirmUncommittedChanges).toBe(true);
     expect(requests[1]?.customAgentRoleId).toBeNull();
+  } finally {
+    view.unmount();
+    configureShellBridge(createUnavailableShellBridge());
+  }
+});
+
+test("requires a safe worktree name and sends an optional custom branch from Advanced", async () => {
+  const requests: WorkspaceSessionCreateInput[] = [];
+  const view = renderCreation(async (input) => {
+    requests.push(input);
+    throw new Error("Keep form open");
+  });
+  try {
+    await selectModel(view);
+    fireEvent.click(view.getByRole("radio", { name: /New worktree/ }));
+    const create = view.getByRole("button", { name: "Create chat" });
+    expect(create.hasAttribute("disabled")).toBe(true);
+    expect(view.queryByLabelText("Branch name optional")).toBeNull();
+    fireEvent.change(view.getByLabelText("Worktree name"), { target: { value: "../escape" } });
+    expect(create.hasAttribute("disabled")).toBe(true);
+    fireEvent.change(view.getByLabelText("Worktree name"), { target: { value: "review-ui" } });
+    await view.findByText("odt/review-ui", {}, { timeout: 800 });
+    fireEvent.click(view.getByRole("button", { name: "Advanced" }));
+    const branch = view.getByLabelText("Branch name optional");
+    expect(branch.getAttribute("placeholder")).toBe("odt/review-ui");
+    fireEvent.change(branch, { target: { value: "bad branch" } });
+    expect(create.hasAttribute("disabled")).toBe(true);
+    fireEvent.change(branch, { target: { value: "feature/custom-ui" } });
+    fireEvent.click(create);
+    await waitFor(() => expect(requests).toHaveLength(1), { timeout: 800 });
+    expect(requests[0]?.worktree).toEqual({
+      mode: "from_name",
+      name: "review-ui",
+      branchName: "feature/custom-ui",
+    });
+  } finally {
+    view.unmount();
+    configureShellBridge(createUnavailableShellBridge());
+  }
+});
+
+test("Existing branch accepts slash-separated worktree names and submits a safe directory name", async () => {
+  const requests: WorkspaceSessionCreateInput[] = [];
+  const view = renderCreation(async (input) => {
+    requests.push(input);
+    throw new Error("Keep form open");
+  });
+  try {
+    await selectModel(view);
+    fireEvent.click(view.getByRole("radio", { name: /New worktree/ }));
+    const tabList = view.getByRole("tablist", { name: "Worktree creation mode" });
+    expect(tabList.classList.contains("bg-muted")).toBe(true);
+    expect(tabList.classList.contains("border-b")).toBe(false);
+    expect(view.getByRole("tab", { name: "New branch" }).className).toContain(
+      "data-[state=active]:bg-selected-control",
+    );
+    expect(view.getByRole("tab", { name: "New branch" })).not.toBeNull();
+    fireEvent.mouseDown(view.getByRole("tab", { name: "Existing branch" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    const selector = await view.findByRole("button", { name: "Existing branch" }, { timeout: 800 });
+    await waitFor(() => expect(selector.hasAttribute("disabled")).toBe(false), { timeout: 800 });
+    fireEvent.click(selector);
+    expect(view.queryByRole("option", { name: /origin\/remote-only/ })).toBeNull();
+    fireEvent.click(view.getByRole("option", { name: /feature\/existing/ }));
+    expect(view.getByDisplayValue("feature-existing")).not.toBeNull();
+    expect(view.queryByRole("button", { name: "Advanced" })).toBeNull();
+    fireEvent.change(view.getByLabelText("Worktree name"), {
+      target: { value: "feat/add-facebook-login" },
+    });
+    expect(view.getByRole("button", { name: "Create chat" }).hasAttribute("disabled")).toBe(false);
+    expect(view.getByText("feat-add-facebook-login")).not.toBeNull();
+    fireEvent.click(view.getByRole("button", { name: "Create chat" }));
+    await waitFor(() => expect(requests).toHaveLength(1), { timeout: 800 });
+    expect(requests[0]?.worktree).toEqual({
+      mode: "from_branch",
+      name: "feat-add-facebook-login",
+      branchName: "feature/existing",
+    });
+  } finally {
+    view.unmount();
+    configureShellBridge(createUnavailableShellBridge());
+  }
+});
+
+test("returning to Current checkout omits all worktree options", async () => {
+  const requests: WorkspaceSessionCreateInput[] = [];
+  const view = renderCreation(async (input) => {
+    requests.push(input);
+    throw new Error("Keep form open");
+  });
+  try {
+    await selectModel(view);
+    fireEvent.click(view.getByRole("radio", { name: /New worktree/ }));
+    fireEvent.change(view.getByLabelText("Worktree name"), { target: { value: "my-feature" } });
+    fireEvent.click(view.getByRole("radio", { name: /Current checkout/ }));
+    fireEvent.click(view.getByRole("button", { name: "Create chat" }));
+    await waitFor(() => expect(requests).toHaveLength(1), { timeout: 800 });
+    expect(requests[0]?.location).toBe("local_repo_root");
+    expect(requests[0]?.worktree).toBeUndefined();
   } finally {
     view.unmount();
     configureShellBridge(createUnavailableShellBridge());

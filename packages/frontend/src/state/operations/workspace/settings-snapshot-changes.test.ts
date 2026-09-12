@@ -13,6 +13,20 @@ const createSnapshot = (
 ) => createSettingsSnapshotFixture({ workspaces, ...overrides });
 
 describe("diffSettingsSnapshots", () => {
+  test("detects role changes but ignores equal cloned roles", () => {
+    const role = { id: "reviewer", name: "Reviewer", systemPrompt: "Review the code." };
+    const empty = createSnapshot({});
+    const withRole = createSnapshot({}, { customAgentRoles: [role] });
+    const edited = createSnapshot({}, { customAgentRoles: [{ ...role, name: "Code reviewer" }] });
+
+    expect(diffSettingsSnapshots(empty, withRole).customAgentRolesChanged).toBe(true);
+    expect(diffSettingsSnapshots(withRole, edited).customAgentRolesChanged).toBe(true);
+    expect(diffSettingsSnapshots(withRole, empty).customAgentRolesChanged).toBe(true);
+    expect(diffSettingsSnapshots(withRole, structuredClone(withRole)).customAgentRolesChanged).toBe(
+      false,
+    );
+  });
+
   test("reports every repository when the previous snapshot is missing", () => {
     const changes = diffSettingsSnapshots(
       undefined,
@@ -25,6 +39,7 @@ describe("diffSettingsSnapshots", () => {
     expect(changes).toEqual({
       workspacesChanged: true,
       agentRuntimesChanged: true,
+      customAgentRolesChanged: true,
       kanbanDoneVisibleDaysChanged: false,
       changedGitProviderRepoPaths: ["/repo-a", "/repo-b"],
     });
@@ -43,6 +58,7 @@ describe("diffSettingsSnapshots", () => {
     expect(diffSettingsSnapshots(createSnapshot(workspaces), createSnapshot(workspaces))).toEqual({
       workspacesChanged: false,
       agentRuntimesChanged: false,
+      customAgentRolesChanged: false,
       kanbanDoneVisibleDaysChanged: false,
       changedGitProviderRepoPaths: [],
     });

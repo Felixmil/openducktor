@@ -1,4 +1,5 @@
 import { unexpectedRuntimeQueries } from "../../test-support/runtime-query-test-doubles";
+import { AgentSessionLiveRegistration } from "../../ports/agent-session-live-adapter-port";
 import { describe, expect, test } from "bun:test";
 import type { PrepareOpencodeSessionRuntime } from "@openducktor/adapters-opencode-sdk";
 import type {
@@ -673,7 +674,10 @@ describe("createOpenCodeLiveSessionAdapterPreparer", () => {
       releaseGeneratedImageBatch: () => Effect.dieMessage("Unexpected releaseGeneratedImageBatch"),
       describeGeneratedImages: () => Effect.dieMessage("Unexpected describeGeneratedImages"),
       resolveGeneratedImageSource: () => Effect.dieMessage("Unexpected generated image read"),
-      binding: { runtimeId: "runtime-2", runtimeKind: "codex", repoPath: "/repo" },
+      binding: new AgentSessionLiveRegistration(
+        { runtimeId: "runtime-2", runtimeKind: "codex", repoPath: "/repo" },
+        (mutation) => Effect.map(mutation, ({ value }) => value),
+      ),
       listSnapshots: (repoPath) => Effect.succeed(repoPath === "/repo" ? [otherSnapshot] : []),
       readSnapshot: (candidate) =>
         Effect.succeed(
@@ -761,12 +765,18 @@ describe("createOpenCodeLiveSessionAdapterPreparer", () => {
       createOpenCodeLiveSessionAdapterPreparer({
         liveSessionLifecycle: {
           releaseRuntime: service.releaseRuntime,
-          runAdapterMutation: (mutation) => {
-            if (watchCommit) {
-              watchCommit = false;
-              markEventCommitStarted();
-            }
-            return service.runAdapterMutation(mutation);
+          createRuntimeRegistration: (binding) => {
+            const registration = service.createRuntimeRegistration(binding);
+            const run = registration.runMutation;
+            const watched: typeof run = (mutation) => {
+              if (watchCommit) {
+                watchCommit = false;
+                markEventCommitStarted();
+              }
+              return run(mutation);
+            };
+            Object.defineProperty(registration, "runMutation", { value: watched });
+            return registration;
           },
         },
         prepareRuntime,

@@ -5,7 +5,7 @@ export const workspaceSessions = sqliteTable(
   {
     id: text("id").primaryKey(),
     runtimeKind: text("runtime_kind").notNull(),
-    externalSessionId: text("external_session_id").notNull(),
+    externalSessionId: text("external_session_id"),
     executionTargetJson: text("execution_target_json").notNull(),
     roleSnapshotJson: text("role_snapshot_json"),
     selectedModelJson: text("selected_model_json"),

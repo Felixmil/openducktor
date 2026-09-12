@@ -17,6 +17,7 @@ import {
   normalizeAgentSessionTaskIds,
   retryAgentSessionListQueries,
 } from "@/state/queries/agent-sessions";
+import { workspaceSessionListQueryOptions } from "@/state/queries/workspace-sessions";
 import { runtimeCatalogQueryKeys } from "@/state/queries/runtime-catalog";
 import { invalidateRuntimeQueries } from "@/state/queries/runtime-query-invalidation";
 import type { AgentSessionIdentity } from "@/types/agent-orchestrator";
@@ -308,11 +309,21 @@ export const useRepoSessionReadModel = ({
     const retryFailureMessage = (cause: unknown): string =>
       `Failed to retry task session records for repo '${repoPath}': ${errorMessage(cause)}`;
     setSessionReadModelLoadState(loadingAgentSessionReadModelLoadState(repoPath));
+    const workspaceRetry =
+      workspaceId === null
+        ? Promise.resolve()
+        : queryClient.fetchQuery({
+            ...workspaceSessionListQueryOptions(workspaceId),
+            staleTime: 0,
+          });
     if (retriesApplyFailure) {
-      void loadAgentSessionListsFromQuery(queryClient, repoPath, retryTaskIds, {
-        forceFresh: true,
-        readPort: sessionReadPort,
-      }).then(
+      void Promise.all([
+        workspaceRetry,
+        loadAgentSessionListsFromQuery(queryClient, repoPath, retryTaskIds, {
+          forceFresh: true,
+          readPort: sessionReadPort,
+        }),
+      ]).then(
         () => {
           if (!isCurrentRetry()) {
             return;
@@ -335,7 +346,10 @@ export const useRepoSessionReadModel = ({
       );
       return;
     }
-    void retryAgentSessionListQueries(queryClient, repoPath, retryTaskIds, sessionReadPort).then(
+    void Promise.all([
+      workspaceRetry,
+      retryAgentSessionListQueries(queryClient, repoPath, retryTaskIds, sessionReadPort),
+    ]).then(
       () => {
         if (isCurrentRetry()) {
           setReloadGeneration((current) => current + 1);
@@ -361,6 +375,7 @@ export const useRepoSessionReadModel = ({
     sessionReadPort,
     taskIds,
     taskIdsKey,
+    workspaceId,
     workspaceRepoPath,
   ]);
   // react-doctor-disable-next-line react-doctor/no-derived-state-effect
@@ -386,7 +401,9 @@ export const useRepoSessionReadModel = ({
   });
   const observedRepoPathRef = useRef<string | null>(null);
   const canObserveRepo =
-    taskRecords.kind === "ready" || observedRepoPathRef.current === workspaceRepoPath;
+    (taskRecords.kind === "ready" &&
+      (workspaceId === null || workspaceRecords.records.isSuccess)) ||
+    observedRepoPathRef.current === workspaceRepoPath;
 
   // Synchronizes an async query lifecycle with the parent-owned session read model.
   // react-doctor-disable-next-line react-doctor/no-derived-state-effect
@@ -618,8 +635,7 @@ export const useRepoSessionReadModel = ({
     };
     const isStaleRepoOperation = (): boolean =>
       cancelled || isRepoStale() || readReloadGeneration() !== effectReloadGeneration;
-    // Every stream write collects the pending-approval policy against the same
-    // commit it belongs to.
+    // Snapshot and ownership changes can introduce approvals or target faults.
     const commitProjected = (
       project: (current: AgentSessionCollection) => AgentSessionCollection,
     ): void => {
@@ -639,6 +655,14 @@ export const useRepoSessionReadModel = ({
       });
       updateWorkspaceTargetFaults(committed.collection);
       applyPendingApprovalPolicy(committed.policyActions);
+    };
+    const commitTranscriptActivity = (
+      envelope: Extract<AgentSessionLiveEnvelope, { type: "transcript_event" }>,
+    ): void => {
+      commitSessionCollection((current) => ({
+        collection: applyAgentSessionLiveDelta({ current, envelope }),
+        result: undefined,
+      }));
     };
     const failObservation = (message: string): void => {
       if (!isStaleRepoOperation()) {
@@ -680,7 +704,7 @@ export const useRepoSessionReadModel = ({
       envelope: Extract<AgentSessionLiveEnvelope, { type: "snapshot" }>,
     ): void => {
       commitProjected((current) => {
-        const registered = applyLoadedRecords(current, current);
+        const registered = applyWorkspaceRecords(applyLoadedRecords(current, current), current);
         const projected = buildAgentSessionLiveCollection({
           current: registered,
           snapshots: envelope.sessions,
@@ -759,6 +783,7 @@ export const useRepoSessionReadModel = ({
       }
       if (envelope.type === "transcript_event") {
         clearSessionFault(envelope.event.sessionRef);
+        commitTranscriptActivity(envelope);
         handleTranscriptEvent(envelope.event);
         return;
       }
@@ -905,13 +930,19 @@ export const useRepoSessionReadModel = ({
   return useMemo(
     () => ({
       sessionReadModelLoadState:
-        workspaceRecords.subscriptionError && workspaceRepoPath
+        workspaceRecords.records.error && workspaceRepoPath && workspaceId !== null
           ? failedAgentSessionReadModelLoadState(
               workspaceRepoPath,
-              workspaceRecords.subscriptionError,
-              "live-stream",
+              `Failed to load workspace session records: ${errorMessage(workspaceRecords.records.error)}`,
+              "task-records",
             )
-          : currentSessionReadModelLoadState,
+          : workspaceRecords.subscriptionError && workspaceRepoPath
+            ? failedAgentSessionReadModelLoadState(
+                workspaceRepoPath,
+                workspaceRecords.subscriptionError,
+                "live-stream",
+              )
+            : currentSessionReadModelLoadState,
       reloadSessionReadModel,
       getSessionFault,
     }),
@@ -920,6 +951,8 @@ export const useRepoSessionReadModel = ({
       getSessionFault,
       reloadSessionReadModel,
       workspaceRecords.subscriptionError,
+      workspaceRecords.records.error,
+      workspaceId,
       workspaceRepoPath,
     ],
   );

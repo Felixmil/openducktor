@@ -17,7 +17,7 @@ import {
 } from "../../application/task-assets/task-asset-staging-service";
 import type { WorkspaceSettingsService } from "../../application/workspaces/workspace-settings-model";
 import { resolveOpenDucktorBaseDir } from "../../config/openducktor-config-dir";
-import type { HostOperationErrorAggregate } from "../../effect/host-errors";
+import { HostOperationError, type HostOperationErrorAggregate } from "../../effect/host-errors";
 import type { TaskStoreError, TaskStorePort } from "../../ports/task-repository-ports";
 import type { HostShutdownStep } from "../host-lifecycle";
 
@@ -27,6 +27,7 @@ export type NodeTaskAssetServices = {
   taskAssetReadService: TaskAssetReadService;
   taskAssetStagingService: TaskAssetStagingService;
   taskStoreConnectionShutdownStep: HostShutdownStep;
+  taskAssetStagingShutdownStep: HostShutdownStep;
   taskStore: TaskStorePort;
 };
 
@@ -36,7 +37,7 @@ export const createNodeTaskAssetServices = ({
   processEnv,
   workspaceSettingsService,
 }: {
-  configuredTaskStore?: TaskStorePort;
+  configuredTaskStore?: TaskStorePort | undefined;
   onBackgroundFailure: (failure: HostOperationErrorAggregate) => Effect.Effect<void, never>;
   processEnv: NodeJS.ProcessEnv;
   workspaceSettingsService: WorkspaceSettingsService;
@@ -88,6 +89,20 @@ export const createNodeTaskAssetServices = ({
         .pipe(Effect.zipRight(taskAssetStagingService.startupSweep()), Effect.asVoid),
     taskAssetReadService,
     taskAssetStagingService,
+    taskAssetStagingShutdownStep: {
+      label: "task asset staging",
+      run: () =>
+        taskAssetStagingService.shutdownCleanup().pipe(
+          Effect.mapError(
+            (cause) =>
+              new HostOperationError({
+                operation: "host.dispose.task_assets",
+                message: cause.message,
+                cause,
+              }),
+          ),
+        ),
+    },
     taskStoreConnectionShutdownStep: {
       label: "SQLite task store connections",
       run: contextManager.dispose,

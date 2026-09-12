@@ -174,6 +174,10 @@ function SettingsModalDialog({
                 globalPromptRoleTab={navigation.globalPromptRoleTab}
                 repoPromptRoleTab={navigation.repoPromptRoleTab}
                 selectedReusablePromptId={navigation.selectedReusablePromptId}
+                selectedCustomAgentRoleId={navigation.selectedCustomAgentRoleId}
+                onSelectedCustomAgentRoleIdChange={(selectedCustomAgentRoleId) =>
+                  setNavigation((current) => ({ ...current, selectedCustomAgentRoleId }))
+                }
                 isInteractionDisabled={isInteractionDisabled}
                 controller={controller}
                 onRepositorySectionChange={handleRepositorySectionChange}
@@ -197,6 +201,8 @@ function SettingsModalDialog({
               controller.isLoadingRuntimeDefinitions || controller.isLoadingRuntimeExecutables,
           }}
           validationSummary={{
+            customAgentRoleFieldErrorCount:
+              controller.customAgentRoleValidationState.totalErrorCount,
             promptPlaceholderErrorCount: controller.promptValidationState.totalErrorCount,
             reusablePromptFieldErrorCount: controller.reusablePromptValidationState.totalErrorCount,
             runtimeAvailabilityErrorCount:

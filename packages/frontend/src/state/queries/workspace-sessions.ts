@@ -1,6 +1,23 @@
 import { WORKSPACE_SESSION_ARCHIVE_LIMIT, type WorkspaceSession } from "@openducktor/contracts";
-import { type QueryClient, queryOptions } from "@tanstack/react-query";
+import { type QueryClient, queryOptions, replaceEqualDeep } from "@tanstack/react-query";
 import { host } from "../operations/host";
+
+const pendingReads = new WeakMap<QueryClient, Map<string, Set<Map<string, WorkspaceSession>>>>();
+// Pending commits are removed on cache commit or query cancellation.
+const snapshotCommits = new Map<unknown, () => WorkspaceSession[]>();
+
+const applyRecord = (
+  records: WorkspaceSession[],
+  session: WorkspaceSession,
+  archived: boolean,
+): WorkspaceSession[] => {
+  const next = records.filter((entry) => entry.id !== session.id);
+  if ((session.archivedAt !== null) === archived) next.push(session);
+  next.sort((left, right) =>
+    archived ? (right.archivedAt ?? 0) - (left.archivedAt ?? 0) : right.updatedAt - left.updatedAt,
+  );
+  return archived ? next.slice(0, WORKSPACE_SESSION_ARCHIVE_LIMIT) : next;
+};
 
 export const workspaceSessionQueryKeys = {
   all: ["workspace-sessions"] as const,
@@ -13,18 +30,59 @@ export const workspaceSessionListQueryOptions = (
   archived = false,
   readPort: Pick<typeof host, "workspaceSessionListActive" | "workspaceSessionListArchived"> = host,
 ) =>
-  queryOptions({
+  queryOptions<WorkspaceSession[]>({
     queryKey: workspaceSessionQueryKeys.list(workspaceId, archived),
-    queryFn: () =>
-      archived
-        ? readPort.workspaceSessionListArchived(workspaceId)
-        : readPort.workspaceSessionListActive(workspaceId),
+    queryFn: async ({ client, signal }) => {
+      let byKey = pendingReads.get(client);
+      if (!byKey) {
+        byKey = new Map();
+        pendingReads.set(client, byKey);
+      }
+      const key = JSON.stringify(workspaceSessionQueryKeys.list(workspaceId, archived));
+      let reads = byKey.get(key);
+      if (!reads) {
+        reads = new Set();
+        byKey.set(key, reads);
+      }
+      const updates = new Map<string, WorkspaceSession>();
+      reads.add(updates);
+      let snapshot: WorkspaceSession[] | undefined;
+      const finish = (): void => {
+        if (!reads.delete(updates)) return;
+        if (reads.size === 0) byKey.delete(key);
+        if (snapshot) snapshotCommits.delete(snapshot);
+        signal.removeEventListener("abort", finish);
+      };
+      signal.addEventListener("abort", finish, { once: true });
+      try {
+        const records = await (archived
+          ? readPort.workspaceSessionListArchived(workspaceId)
+          : readPort.workspaceSessionListActive(workspaceId));
+        snapshot = [...records];
+        if (signal.aborted) return snapshot;
+        // Keep events through the query result's Promise handoff, until the cache commits it.
+        snapshotCommits.set(snapshot, () => {
+          let merged = records;
+          for (const session of updates.values()) merged = applyRecord(merged, session, archived);
+          finish();
+          return merged;
+        });
+        return snapshot;
+      } catch (cause) {
+        finish();
+        throw cause;
+      }
+    },
+    structuralSharing: (previous, incoming) => {
+      const commit = snapshotCommits.get(incoming);
+      return replaceEqualDeep(previous, commit ? commit() : incoming);
+    },
     gcTime: Number.POSITIVE_INFINITY,
     staleTime: 0,
     retry: false,
   });
 
-/** Cancel older reads before accepting ordered host metadata events or mutation results. */
+/** Apply ordered metadata and retain it for any older snapshot still in flight. */
 export const updateWorkspaceSessionQueries = (
   queryClient: QueryClient,
   workspaceId: string,
@@ -32,21 +90,14 @@ export const updateWorkspaceSessionQueries = (
 ): void => {
   for (const archived of [false, true]) {
     const queryKey = workspaceSessionQueryKeys.list(workspaceId, archived);
-    void queryClient.cancelQueries({ queryKey, exact: true });
+    const reads = pendingReads.get(queryClient)?.get(JSON.stringify(queryKey));
+    for (const updates of reads ?? []) updates.set(session.id, session);
     if (queryClient.getQueryData(queryKey) === undefined) {
-      void queryClient.invalidateQueries({ queryKey, exact: true });
       continue;
     }
     queryClient.setQueryData<WorkspaceSession[]>(queryKey, (current) => {
       if (!current) return undefined;
-      const next = current.filter((entry) => entry.id !== session.id);
-      if ((session.archivedAt !== null) === archived) next.push(session);
-      next.sort((left, right) =>
-        archived
-          ? (right.archivedAt ?? 0) - (left.archivedAt ?? 0)
-          : right.updatedAt - left.updatedAt,
-      );
-      return archived ? next.slice(0, WORKSPACE_SESSION_ARCHIVE_LIMIT) : next;
+      return applyRecord(current, session, archived);
     });
   }
 };

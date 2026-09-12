@@ -21,7 +21,7 @@ import { createTaskStreamController } from "@/state/tasks/task-stream-controller
 import { IsolatedQueryWrapper } from "@/test-utils/isolated-query-wrapper";
 import { createDeferred, createTaskCardFixture } from "@/test-utils/shared-test-fixtures";
 import { createNotificationTaskObserver as createTaskObserver } from "./notification-task-observer";
-import { createNotificationWorkspaceObserver } from "./notification-workspace-observer";
+import { createNotificationWorkspaceObserver as createWorkspaceObserver } from "./notification-workspace-observer";
 
 type AgentSessionLiveSnapshotEnvelope = Extract<AgentSessionLiveEnvelope, { type: "snapshot" }>;
 
@@ -46,6 +46,18 @@ const createNotificationTaskObserver = (
     },
   });
 };
+
+const createNotificationWorkspaceObserver = (
+  options: Omit<Parameters<typeof createWorkspaceObserver>[0], "sessionRecords">,
+) =>
+  createWorkspaceObserver({
+    ...options,
+    sessionRecords: {
+      load: async () => {},
+      resolve: options.taskObserver.resolveSessionAssociation,
+      subscribe: () => () => {},
+    },
+  });
 
 const flush = async (): Promise<void> => {
   await Promise.resolve();

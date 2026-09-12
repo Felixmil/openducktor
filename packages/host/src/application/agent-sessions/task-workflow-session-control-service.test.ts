@@ -11,22 +11,58 @@ import type {
 import { Deferred, Effect, Exit, Fiber } from "effect";
 import { HostOperationError } from "../../effect/host-errors";
 import { createTaskSessionLifecycleCoordinator } from "../tasks/worktrees/task-session-lifecycle-coordinator";
-import { createTaskWorkflowSessionControlService as createControlService } from "./task-workflow-session-control-service";
+import { createAgentSessionCommandService as createControlService } from "./agent-session-command-service";
 
 type ControlServiceInput = Parameters<typeof createControlService>[0];
-type TestControlServiceInput = Omit<ControlServiceInput, "taskSessionStart" | "tasks"> & {
+type TestControlServiceInput = Omit<
+  ControlServiceInput,
+  "taskSessionStart" | "tasks" | "repositoryPolicy" | "persistTaskModel" | "runtime"
+> & {
+  runtime: Omit<
+    ControlServiceInput["runtime"],
+    "loadContext" | "loadSessionDiff" | "replyApproval" | "replyQuestion"
+  >;
   taskSessionStart?: ControlServiceInput["taskSessionStart"];
   tasks: Omit<ControlServiceInput["tasks"], "transitionTask"> &
     Partial<Pick<ControlServiceInput["tasks"], "transitionTask">>;
 };
 
-const createTaskWorkflowSessionControlService = (input: TestControlServiceInput) =>
+const createAgentSessionCommandService = (input: TestControlServiceInput) =>
   createControlService({
     taskSessionStart: {
       prepare: () => Effect.dieMessage("unexpected task session preparation"),
       complete: () => Effect.dieMessage("unexpected task session completion"),
     },
     ...input,
+    runtime: {
+      loadContext: () => Effect.dieMessage("unexpected context read"),
+      loadSessionDiff: () => Effect.dieMessage("unexpected diff read"),
+      replyApproval: () => Effect.dieMessage("unexpected approval reply"),
+      replyQuestion: () => Effect.dieMessage("unexpected question reply"),
+      ...input.runtime,
+    },
+    repositoryPolicy: {
+      run: (_ref, _operation, effect) => effect,
+      validateRef: () => Effect.void,
+      prepareResume: (request) => Effect.succeed({ input: request, save: () => Effect.void }),
+      prepareSend: (request) => Effect.succeed(request),
+      recordAcceptedMessage: () => Effect.void,
+      prepareModelUpdate: (request) =>
+        Effect.succeed({ input: request, previousModel: null, save: Effect.succeed(Effect.void) }),
+    },
+    persistTaskModel: (request) =>
+      input.tasks.agentSessionUpdateModel(request).pipe(
+        Effect.mapError((cause) =>
+          cause instanceof HostOperationError
+            ? cause
+            : new HostOperationError({
+                operation: "test.update-model",
+                message: cause.message,
+                cause,
+              }),
+        ),
+        Effect.map((updated) => ({ updated, publish: Effect.void })),
+      ),
     tasks: {
       transitionTask: () => Effect.dieMessage("unexpected task transition"),
       ...input.tasks,
@@ -147,7 +183,7 @@ const acceptedUserMessage: AcceptedAgentUserMessage = {
 
 const unexpectedSend = () => Effect.dieMessage("unexpected send");
 
-type ControlDeps = Parameters<typeof createTaskWorkflowSessionControlService>[0];
+type ControlDeps = Parameters<typeof createAgentSessionCommandService>[0];
 
 const createModelUpdateService = ({
   selectedModel = storedModel,
@@ -158,7 +194,7 @@ const createModelUpdateService = ({
   updateRuntimeModel: ControlDeps["runtime"]["updateSessionModel"];
   updateStoredModel: ControlDeps["tasks"]["agentSessionUpdateModel"];
 }) =>
-  createTaskWorkflowSessionControlService({
+  createAgentSessionCommandService({
     ...createControlDeps(),
     runtime: {
       startSession: () => Effect.dieMessage("unexpected start"),
@@ -176,10 +212,10 @@ const createModelUpdateService = ({
     },
   });
 
-describe("createTaskWorkflowSessionControlService", () => {
+describe("createAgentSessionCommandService", () => {
   test("rejects workflow startup while direct merge runs", async () => {
     const deps = createControlDeps();
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       ...deps,
       runtime: {
         startSession: () => Effect.dieMessage("unexpected start"),
@@ -224,7 +260,7 @@ describe("createTaskWorkflowSessionControlService", () => {
       const returnSummary = await Effect.runPromise(Deferred.make<void>());
       const preparedTask = task("ready_for_dev");
       const deps = createControlDeps();
-      const service = createTaskWorkflowSessionControlService({
+      const service = createAgentSessionCommandService({
         ...deps,
         taskSessionStart: {
           prepare: () =>
@@ -322,7 +358,7 @@ describe("createTaskWorkflowSessionControlService", () => {
     const calls: string[] = [];
     const taskLifecycle = createTaskSessionLifecycleCoordinator();
     const preparedTask = task("ready_for_dev");
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       canonicalizeRepoPath: (repoPath) => Effect.succeed(repoPath),
       taskReader,
       taskLifecycle,
@@ -406,7 +442,7 @@ describe("createTaskWorkflowSessionControlService", () => {
   test("stops the runtime and removes a new worktree when session storage fails", async () => {
     const calls: string[] = [];
     const preparedTask = task("ready_for_dev");
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       ...createControlDeps(),
       taskSessionStart: {
         prepare: () =>
@@ -459,7 +495,7 @@ describe("createTaskWorkflowSessionControlService", () => {
   test("keeps a new worktree when session storage and runtime stop both fail", async () => {
     const calls: string[] = [];
     const preparedTask = task("ready_for_dev");
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       ...createControlDeps(),
       taskSessionStart: {
         prepare: () =>
@@ -522,7 +558,7 @@ describe("createTaskWorkflowSessionControlService", () => {
   test("keeps the stored session and worktree when Builder completion fails", async () => {
     const calls: string[] = [];
     const preparedTask = task("ready_for_dev");
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       ...createControlDeps(),
       taskSessionStart: {
         prepare: () =>
@@ -576,7 +612,7 @@ describe("createTaskWorkflowSessionControlService", () => {
 
   test("does not store a repository session", async () => {
     let storeCount = 0;
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       ...createControlDeps(),
       runtime: {
         startSession: () => Effect.succeed(summary),
@@ -614,7 +650,7 @@ describe("createTaskWorkflowSessionControlService", () => {
 
   test("stores controlled resume and fork results", async () => {
     const stored: AgentSessionRecord[] = [];
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       ...createControlDeps(),
       runtime: {
         startSession: () => Effect.dieMessage("unexpected start"),
@@ -677,7 +713,7 @@ describe("createTaskWorkflowSessionControlService", () => {
 
   test("rejects a workflow resume when the stored role differs", async () => {
     let runtimeCalls = 0;
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       ...createControlDeps(),
       runtime: {
         startSession: () => Effect.dieMessage("unexpected start"),
@@ -722,7 +758,7 @@ describe("createTaskWorkflowSessionControlService", () => {
 
   test("rejects a workflow fork when the task does not own the parent", async () => {
     let runtimeCalls = 0;
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       ...createControlDeps(),
       runtime: {
         startSession: () => Effect.dieMessage("unexpected start"),
@@ -762,7 +798,7 @@ describe("createTaskWorkflowSessionControlService", () => {
 
   test("rejects a workflow fork when its role is not available", async () => {
     let runtimeCalls = 0;
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       ...createControlDeps(),
       taskReader: { getTask: () => Effect.succeed(task("closed")) },
       runtime: {
@@ -804,7 +840,7 @@ describe("createTaskWorkflowSessionControlService", () => {
 
   test("sends a workflow message through its stored session", async () => {
     const runtimeInputs: AgentSessionControlSendInput[] = [];
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       canonicalizeRepoPath: () => Effect.succeed("/repo"),
       taskReader,
       runtime: {
@@ -843,7 +879,7 @@ describe("createTaskWorkflowSessionControlService", () => {
 
   test("rejects a workflow message when the task does not own the session", async () => {
     let runtimeCalls = 0;
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       ...createControlDeps(),
       runtime: {
         startSession: () => Effect.dieMessage("unexpected start"),
@@ -874,7 +910,7 @@ describe("createTaskWorkflowSessionControlService", () => {
   test("does not send a workflow message while another task lifecycle change runs", async () => {
     let runtimeCalls = 0;
     const taskLifecycle = createTaskSessionLifecycleCoordinator();
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       canonicalizeRepoPath: (repoPath) => Effect.succeed(repoPath),
       taskReader,
       runtime: {
@@ -917,7 +953,7 @@ describe("createTaskWorkflowSessionControlService", () => {
     const runtimeInputs: unknown[] = [];
     const storedModels: unknown[] = [];
     const taskLifecycle = createTaskSessionLifecycleCoordinator();
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       canonicalizeRepoPath: (repoPath) => Effect.succeed(repoPath),
       taskReader,
       runtime: {
@@ -1123,7 +1159,7 @@ describe("createTaskWorkflowSessionControlService", () => {
   test("checks workflow ownership before it changes the runtime model", async () => {
     let runtimeCalls = 0;
     const taskLifecycle = createTaskSessionLifecycleCoordinator();
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       canonicalizeRepoPath: (repoPath) => Effect.succeed(repoPath),
       taskReader,
       runtime: {
@@ -1164,7 +1200,7 @@ describe("createTaskWorkflowSessionControlService", () => {
   test("does not change a workflow model while another task lifecycle change runs", async () => {
     let runtimeCalls = 0;
     const taskLifecycle = createTaskSessionLifecycleCoordinator();
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       canonicalizeRepoPath: (repoPath) => Effect.succeed(repoPath),
       taskReader,
       runtime: {
@@ -1213,7 +1249,7 @@ describe("createTaskWorkflowSessionControlService", () => {
   test("does not resume a workflow session while another task lifecycle change runs", async () => {
     let runtimeCalls = 0;
     const taskLifecycle = createTaskSessionLifecycleCoordinator();
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       canonicalizeRepoPath: (repoPath) => Effect.succeed(repoPath),
       taskReader,
       runtime: {
@@ -1262,7 +1298,7 @@ describe("createTaskWorkflowSessionControlService", () => {
   test("does not fork a workflow session while another task lifecycle change runs", async () => {
     let runtimeCalls = 0;
     const taskLifecycle = createTaskSessionLifecycleCoordinator();
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       canonicalizeRepoPath: (repoPath) => Effect.succeed(repoPath),
       taskReader,
       runtime: {
@@ -1313,7 +1349,7 @@ describe("createTaskWorkflowSessionControlService", () => {
   test("holds the task lifecycle gate until the fork record is stored", async () => {
     const taskLifecycle = createTaskSessionLifecycleCoordinator();
     let resetWasBlocked = false;
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       ...createControlDeps(),
       runtime: {
         startSession: () => Effect.dieMessage("unexpected start"),
@@ -1360,7 +1396,7 @@ describe("createTaskWorkflowSessionControlService", () => {
   test("holds the task lifecycle gate until the model record is stored", async () => {
     const taskLifecycle = createTaskSessionLifecycleCoordinator();
     let resetWasBlocked = false;
-    const service = createTaskWorkflowSessionControlService({
+    const service = createAgentSessionCommandService({
       canonicalizeRepoPath: (repoPath) => Effect.succeed(repoPath),
       taskReader,
       runtime: {

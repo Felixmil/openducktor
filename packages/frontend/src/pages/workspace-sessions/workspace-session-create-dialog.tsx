@@ -2,6 +2,8 @@ import {
   WORKSPACE_SESSION_MANUAL_TITLE_LIMIT,
   type WorkspaceSession,
   type WorkspaceSessionCreateInput,
+  type WorkspaceSessionWorktreeInput,
+  workspaceSessionWorktreeInputSchema,
 } from "@openducktor/contracts";
 import { HostInvokeError } from "@openducktor/host-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -25,6 +27,7 @@ import { Label } from "@/components/ui/label";
 import { errorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { host } from "@/state/operations/host";
+import { invalidateRepoBranchesQuery } from "@/state/queries/git";
 import {
   customAgentRolesQueryOptions,
   updateWorkspaceSessionQueries,
@@ -32,6 +35,7 @@ import {
 import type { ActiveWorkspace } from "@/types/state-slices";
 import { useWorkspaceSessionModelPicker } from "./use-workspace-session-model-picker";
 import { useMountedRef } from "./use-mounted-ref";
+import { WorkspaceSessionWorktreeFields } from "./workspace-session-worktree-fields";
 
 type WorkspaceSessionCreateDialogProps = {
   workspace: ActiveWorkspace;
@@ -52,39 +56,48 @@ export function WorkspaceSessionCreateDialog({
   const [location, setLocation] =
     useState<WorkspaceSessionCreateInput["location"]>("local_repo_root");
   const [confirmChanges, setConfirmChanges] = useState(false);
+  const [worktree, setWorktree] = useState<WorkspaceSessionWorktreeInput>({
+    mode: "from_name",
+    name: "",
+    branchName: null,
+  });
+  const parsedWorktree = workspaceSessionWorktreeInputSchema.safeParse(worktree);
+  const worktreeValid = location === "local_repo_root" || parsedWorktree.success;
   const mounted = useMountedRef();
   const create = useMutation({
     mutationFn: (input: WorkspaceSessionCreateInput) => host.workspaceSessionCreate(input),
     onSuccess: (result, input) => {
       updateWorkspaceSessionQueries(queryClient, input.workspaceId, result.session);
+      if (input.location === "local_worktree")
+        void invalidateRepoBranchesQuery(queryClient, workspace.repoPath);
       if (mounted.current) onCreated(result.session);
     },
   });
   const submit = (confirmUncommittedChanges: boolean) => {
     const selection = model.selection;
-    if (!selection?.runtimeKind || create.isPending) return;
+    if (!selection?.runtimeKind || create.isPending || !worktreeValid) return;
     setConfirmChanges(false);
-    create.mutate(
-      {
-        workspaceId: workspace.workspaceId,
-        runtimeKind: selection.runtimeKind,
-        selectedModel: { ...selection, runtimeKind: selection.runtimeKind },
-        customAgentRoleId: roleId === "none" ? null : roleId,
-        location,
-        manualTitle: name,
-        confirmUncommittedChanges,
+    const input: WorkspaceSessionCreateInput = {
+      workspaceId: workspace.workspaceId,
+      runtimeKind: selection.runtimeKind,
+      selectedModel: { ...selection, runtimeKind: selection.runtimeKind },
+      customAgentRoleId: roleId === "none" ? null : roleId,
+      location,
+      manualTitle: name,
+      confirmUncommittedChanges,
+    };
+    if (location === "local_worktree" && parsedWorktree.success)
+      input.worktree = parsedWorktree.data;
+    create.mutate(input, {
+      onError: (error) => {
+        if (
+          error instanceof HostInvokeError &&
+          error.failure?.kind === "workspace_session_confirmation" &&
+          error.failure.field === "confirmUncommittedChanges"
+        )
+          setConfirmChanges(true);
       },
-      {
-        onError: (error) => {
-          if (
-            error instanceof HostInvokeError &&
-            error.failure?.kind === "workspace_session_confirmation" &&
-            error.failure.field === "confirmUncommittedChanges"
-          )
-            setConfirmChanges(true);
-        },
-      },
-    );
+    });
   };
   return (
     <Dialog
@@ -93,7 +106,7 @@ export function WorkspaceSessionCreateDialog({
         if (!open && !create.isPending) onClose();
       }}
     >
-      <DialogContent className="my-0 max-w-xl gap-0 p-0">
+      <DialogContent className="my-0 gap-0 p-0 sm:max-w-2xl">
         <DialogHeader className="border-b border-border px-6 py-4">
           <DialogTitle>New chat</DialogTitle>
           <DialogDescription>Choose where the agent works and how it starts.</DialogDescription>
@@ -107,12 +120,13 @@ export function WorkspaceSessionCreateDialog({
         >
           <fieldset disabled={create.isPending} className="contents">
             <DialogBody className="flex flex-col gap-3 px-6 py-4">
-              <div className="space-y-2">
+              <div className="grid gap-1.5">
                 <Label htmlFor="workspace-session-name">
                   Name <span className="font-normal text-muted-foreground">optional</span>
                 </Label>
                 <Input
                   id="workspace-session-name"
+                  autoComplete="off"
                   value={name}
                   onChange={(event) => setName(event.target.value)}
                   placeholder="What are you working on?"
@@ -120,7 +134,7 @@ export function WorkspaceSessionCreateDialog({
                 />
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
+                <div className="grid gap-1.5">
                   <Label>Runtime and model</Label>
                   <ModelPicker
                     {...model.modelPicker}
@@ -132,7 +146,7 @@ export function WorkspaceSessionCreateDialog({
                     triggerClassName="w-full justify-between"
                   />
                 </div>
-                <div className="space-y-2">
+                <div className="grid gap-1.5">
                   <Label id="workspace-session-effort">Effort</Label>
                   <Combobox
                     triggerAriaLabelledBy="workspace-session-effort"
@@ -145,7 +159,7 @@ export function WorkspaceSessionCreateDialog({
                 </div>
               </div>
               {model.supportsProfiles && (
-                <div className="space-y-2">
+                <div className="grid gap-1.5">
                   <Label id="workspace-session-profile">Runtime profile</Label>
                   <Combobox
                     triggerAriaLabelledBy="workspace-session-profile"
@@ -157,26 +171,27 @@ export function WorkspaceSessionCreateDialog({
                   />
                 </div>
               )}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label id="workspace-session-role">
-                    Custom role <span className="font-normal text-muted-foreground">optional</span>
-                  </Label>
+              <div className="grid gap-1.5">
+                <Label id="workspace-session-role">
+                  Custom role <span className="font-normal text-muted-foreground">optional</span>
+                </Label>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+                  <Combobox
+                    triggerAriaLabelledBy="workspace-session-role"
+                    value={roleId}
+                    onValueChange={setRoleId}
+                    disabled={create.isPending || roles.isPending || roles.isError}
+                    options={[
+                      { value: "none", label: "No role" },
+                      ...(roles.data ?? []).map((role) => ({ value: role.id, label: role.name })),
+                    ]}
+                  />
                   <SettingsModal
                     triggerLabel="Manage roles"
+                    triggerSize="default"
                     deepLink={{ kind: "custom-agent-roles" }}
                   />
                 </div>
-                <Combobox
-                  triggerAriaLabelledBy="workspace-session-role"
-                  value={roleId}
-                  onValueChange={setRoleId}
-                  disabled={create.isPending || roles.isPending || roles.isError}
-                  options={[
-                    { value: "none", label: "No role" },
-                    ...(roles.data ?? []).map((role) => ({ value: role.id, label: role.name })),
-                  ]}
-                />
                 {roles.isError && (
                   <div role="alert">
                     <p className="text-sm text-destructive">{errorMessage(roles.error)}</p>
@@ -237,10 +252,21 @@ export function WorkspaceSessionCreateDialog({
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {location === "local_worktree"
-                    ? "Starts from committed HEAD. Uncommitted changes stay in the current checkout."
+                    ? "Uncommitted changes stay in the current checkout."
                     : "Changes apply directly to this workspace checkout."}
                 </p>
               </fieldset>
+              {location === "local_worktree" && (
+                <WorkspaceSessionWorktreeFields
+                  workspace={workspace}
+                  value={worktree}
+                  disabled={create.isPending}
+                  onChange={(value) => {
+                    setWorktree(value);
+                    setConfirmChanges(false);
+                  }}
+                />
+              )}
               {create.error && !confirmChanges && (
                 <p role="alert" className="text-sm text-destructive">
                   {errorMessage(create.error)}
@@ -260,7 +286,7 @@ export function WorkspaceSessionCreateDialog({
                 </div>
               )}
             </DialogBody>
-            <DialogFooter className="mt-0 border-t border-border bg-muted/30 px-6 py-4">
+            <DialogFooter className="mt-0 justify-between border-t border-border bg-muted/30 px-6 py-4 sm:justify-between">
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancel
               </Button>
@@ -268,6 +294,7 @@ export function WorkspaceSessionCreateDialog({
                 type="submit"
                 disabled={
                   create.isPending ||
+                  !worktreeValid ||
                   !model.selection ||
                   !model.selectedModelEntry ||
                   roles.isPending ||

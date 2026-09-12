@@ -82,7 +82,10 @@ describe("global Custom Agent Roles", () => {
 
   test("serializes role and settings writes without losing either change", async () => {
     const { service, config } = setup();
-    const snapshot = await Effect.runPromise(service.getSettingsSnapshot());
+    const { customAgentRoles, ...snapshot } = await Effect.runPromise(
+      service.getSettingsSnapshot(),
+    );
+    expect(customAgentRoles).toEqual([]);
     await Effect.runPromise(
       Effect.all(
         [

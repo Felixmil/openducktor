@@ -1,7 +1,5 @@
 import { REUSABLE_PROMPT_ARGUMENTS_PLACEHOLDER, type ReusablePrompt } from "@openducktor/contracts";
-import { CircleAlert, Trash2 } from "lucide-react";
 import { type ReactElement, useEffect, useRef } from "react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,6 +7,11 @@ import {
   createReusablePromptDraft,
   type ReusablePromptValidationMap,
 } from "@/state/read-models/settings-read-model";
+import {
+  SettingsListEditor,
+  SettingsListEditorCard,
+  SettingsListEditorEmptyState,
+} from "./settings-list-editor";
 
 type ReusablePromptField = "name" | "description" | "content";
 
@@ -85,75 +88,40 @@ export function SettingsReusablePromptsSection({
   const shouldAutofocusName = selectedPrompt?.id === promptIdToAutofocusRef.current;
 
   return (
-    <div className="grid h-full lg:grid-cols-[260px_minmax(0,1fr)]">
-      <aside className="flex h-full min-h-0 flex-col gap-3 border-r border-border bg-muted/50 p-3">
-        <div className="shrink-0 space-y-1">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Reusable prompts
-          </p>
-          <p className="text-xs text-muted-foreground">Reusable slash commands for chats.</p>
-        </div>
-
-        <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
-          {reusablePrompts.map((prompt) => {
-            const errorCount = countPromptErrors(validationErrors[prompt.id]);
-            const isSelected = prompt.id === selectedPrompt?.id;
-            return (
-              <Button
-                key={prompt.id}
-                type="button"
-                variant={isSelected ? "accent" : "ghost"}
-                className="w-full justify-between"
-                disabled={disabled}
-                onClick={() => onSelectedReusablePromptIdChange(prompt.id)}
-                title={
-                  errorCount > 0
-                    ? `${errorCount} reusable prompt field error${errorCount > 1 ? "s" : ""}`
-                    : undefined
-                }
-              >
-                <span className="min-w-0 truncate text-left">{getPromptTabLabel(prompt)}</span>
-                {errorCount > 0 ? (
-                  <CircleAlert
-                    className="ml-2 size-3.5 shrink-0 text-destructive-muted"
-                    aria-hidden="true"
-                  />
-                ) : null}
-              </Button>
-            );
-          })}
-        </div>
-
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="w-full shrink-0"
+    <SettingsListEditor
+      title="Reusable prompts"
+      description="Reusable slash commands for chats."
+      items={reusablePrompts.map((prompt) => {
+        const count = countPromptErrors(validationErrors[prompt.id]);
+        return {
+          id: prompt.id,
+          label: getPromptTabLabel(prompt),
+          errorTitle:
+            count > 0 ? `${count} reusable prompt field error${count > 1 ? "s" : ""}` : undefined,
+        };
+      })}
+      selectedId={selectedPrompt?.id ?? null}
+      disabled={disabled}
+      addLabel="Add prompt"
+      onSelect={onSelectedReusablePromptIdChange}
+      onAdd={addReusablePrompt}
+    >
+      {selectedPrompt ? (
+        <ReusablePromptEditorCard
+          prompt={selectedPrompt}
+          errors={validationErrors[selectedPrompt.id] ?? {}}
           disabled={disabled}
-          onClick={addReusablePrompt}
-        >
-          Add prompt
-        </Button>
-      </aside>
-
-      <div className="min-w-0 p-4">
-        {selectedPrompt ? (
-          <ReusablePromptEditorCard
-            prompt={selectedPrompt}
-            errors={validationErrors[selectedPrompt.id] ?? {}}
-            disabled={disabled}
-            shouldAutofocusName={shouldAutofocusName}
-            onNameAutofocused={() => {
-              promptIdToAutofocusRef.current = null;
-            }}
-            onRemoveReusablePrompt={removeReusablePrompt}
-            onUpdateReusablePromptField={updateReusablePromptField}
-          />
-        ) : (
-          <ReusablePromptsEmptyState disabled={disabled} onAddReusablePrompt={addReusablePrompt} />
-        )}
-      </div>
-    </div>
+          shouldAutofocusName={shouldAutofocusName}
+          onNameAutofocused={() => {
+            promptIdToAutofocusRef.current = null;
+          }}
+          onRemoveReusablePrompt={removeReusablePrompt}
+          onUpdateReusablePromptField={updateReusablePromptField}
+        />
+      ) : (
+        <ReusablePromptsEmptyState disabled={disabled} onAddReusablePrompt={addReusablePrompt} />
+      )}
+    </SettingsListEditor>
   );
 }
 
@@ -167,26 +135,21 @@ function ReusablePromptsEmptyState({
   onAddReusablePrompt,
 }: ReusablePromptsEmptyStateProps): ReactElement {
   return (
-    <div className="flex min-h-[360px] items-center justify-center rounded-md border border-dashed border-border bg-card p-6 text-center">
-      <div className="max-w-md space-y-4">
-        <div className="space-y-2">
-          <h3 className="text-base font-semibold text-foreground">
-            Create your first reusable prompt
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            Save reusable markdown prompts and invoke them in chat with a slash command like
-            <span className="font-medium text-foreground"> /review</span>.
-          </p>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Use {REUSABLE_PROMPT_ARGUMENTS_PLACEHOLDER} in the content to insert text typed after the
-          slash command.
-        </p>
-        <Button type="button" disabled={disabled} onClick={onAddReusablePrompt}>
-          Add reusable prompt
-        </Button>
-      </div>
-    </div>
+    <SettingsListEditorEmptyState
+      title="Create your first reusable prompt"
+      addLabel="Add reusable prompt"
+      disabled={disabled}
+      onAdd={onAddReusablePrompt}
+    >
+      <p className="text-sm text-muted-foreground">
+        Save reusable markdown prompts and invoke them in chat with a slash command like
+        <span className="font-medium text-foreground"> /review</span>.
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Use {REUSABLE_PROMPT_ARGUMENTS_PLACEHOLDER} in the content to insert text typed after the
+        slash command.
+      </p>
+    </SettingsListEditorEmptyState>
   );
 }
 
@@ -229,27 +192,17 @@ function ReusablePromptEditorCard({
   }, [disabled, onNameAutofocused, shouldAutofocusName]);
 
   return (
-    <div className="space-y-4 rounded-md border border-border bg-card p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1">
-          <h3 className="text-base font-semibold text-foreground">{getPromptTabLabel(prompt)}</h3>
-          <p className="text-xs text-muted-foreground">
-            This prompt appears in chat as
-            <span className="font-medium text-foreground"> {promptTriggerPreview}</span>.
-          </p>
-        </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="destructive"
-          disabled={disabled}
-          onClick={() => onRemoveReusablePrompt(prompt.id)}
-        >
-          <Trash2 className="size-4" aria-hidden="true" />
-          Delete
-        </Button>
-      </div>
-
+    <SettingsListEditorCard
+      title={getPromptTabLabel(prompt)}
+      description={
+        <>
+          This prompt appears in chat as
+          <span className="font-medium text-foreground"> {promptTriggerPreview}</span>.
+        </>
+      }
+      disabled={disabled}
+      onDelete={() => onRemoveReusablePrompt(prompt.id)}
+    >
       <div className="grid gap-3 md:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor={nameInputId}>Name</Label>
@@ -307,7 +260,7 @@ function ReusablePromptEditorCard({
           </p>
         )}
       </div>
-    </div>
+    </SettingsListEditorCard>
   );
 
   function updateReusablePromptName(value: string): void {

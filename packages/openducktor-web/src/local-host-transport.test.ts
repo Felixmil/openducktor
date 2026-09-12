@@ -305,6 +305,50 @@ describe("createLocalHostClient", () => {
     });
   });
 
+  test("preserves acceptance through the local web transport and host client", async () => {
+    const { createLocalHostClient } = await loadLocalHostTransport();
+    const sessionRef = {
+      repoPath: "/repo",
+      runtimeKind: "codex" as const,
+      workingDirectory: "/repo",
+      externalSessionId: "native",
+    };
+    const failure = {
+      kind: "agent_session_message_accepted",
+      sessionRef,
+      acceptedMessage: {
+        type: "user_message",
+        externalSessionId: "native",
+        messageId: "message-1",
+        timestamp: "2026-09-12T10:00:00Z",
+        message: "Hello",
+        parts: [],
+        state: "read",
+      },
+      stage: "live_update",
+    };
+    globalThis.fetch = createFetchFixture(
+      mock(async (url: string | URL | Request) =>
+        url.toString().endsWith("/session")
+          ? new Response(JSON.stringify({ ok: true }), { status: 200 })
+          : new Response(
+              JSON.stringify({
+                error: "The runtime accepted the message, but the session update failed.",
+                failure,
+              }),
+              { status: 500 },
+            ),
+      ),
+    );
+    await expect(
+      createLocalHostClient().agentSessionControlSend({
+        ...sessionRef,
+        sessionScope: { kind: "repository" },
+        parts: [{ kind: "text", text: "Hello" }],
+      }),
+    ).rejects.toMatchObject({ name: "HostInvokeError", failure });
+  });
+
   test("preserves workspace write failures through the local web transport", async () => {
     const { createLocalHostClient } = await loadLocalHostTransport();
     globalThis.fetch = createFetchFixture(

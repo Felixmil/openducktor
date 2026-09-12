@@ -1,4 +1,5 @@
 import { unexpectedRuntimeQueries } from "./runtime-query-test-doubles";
+import { AgentSessionLiveRegistration } from "../ports/agent-session-live-adapter-port";
 import { Effect } from "effect";
 import type { DevServerService } from "../application/dev-servers/dev-server-service";
 import type { WorkspaceSettingsService } from "../application/workspaces/workspace-settings-service";
@@ -32,7 +33,12 @@ export const createAgentSessionRuntimeAdapterTestDouble = <
     "session adapter",
     "resolveGeneratedImageSource",
   ),
-  binding,
+  binding:
+    binding instanceof AgentSessionLiveRegistration
+      ? binding
+      : new AgentSessionLiveRegistration(binding, (mutation) =>
+          Effect.map(mutation, ({ value }) => value),
+        ),
   forkSession: unexpectedEffectCall("live session adapter", "forkSession"),
   listSnapshots: unexpectedEffectCall("live session adapter", "listSnapshots"),
   loadContext: unexpectedEffectCall("live session adapter", "loadContext"),

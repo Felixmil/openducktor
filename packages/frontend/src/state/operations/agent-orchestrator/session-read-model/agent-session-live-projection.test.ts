@@ -876,7 +876,7 @@ describe("agent session live projection", () => {
   });
 
   test.each(["stopped", "error"] as const)(
-    "does not resurrect a session after terminal %s activity",
+    "preserves terminal %s for an idle snapshot from the same execution",
     (terminalStatus) => {
       const loaded = build({
         snapshots: [snapshot("thread-1")],
@@ -906,13 +906,6 @@ describe("agent session live projection", () => {
             modelId: "gpt-5.4",
             variant: "high",
           },
-          pendingApprovals: [
-            {
-              requestId: "stale-approval",
-              requestType: "command_execution",
-              title: "Stale approval",
-            },
-          ],
         }),
       });
 

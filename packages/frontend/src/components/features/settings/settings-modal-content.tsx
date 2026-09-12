@@ -25,6 +25,8 @@ type SettingsModalContentProps = {
   globalPromptRoleTab: PromptRoleTabId;
   repoPromptRoleTab: PromptRoleTabId;
   selectedReusablePromptId: string | null;
+  selectedCustomAgentRoleId: string | null;
+  onSelectedCustomAgentRoleIdChange: (next: string | null) => void;
   isInteractionDisabled: boolean;
   controller: SettingsModalController;
   onRepositorySectionChange: (next: RepositorySectionId) => void;
@@ -41,6 +43,8 @@ export function SettingsModalContent({
   globalPromptRoleTab,
   repoPromptRoleTab,
   selectedReusablePromptId,
+  selectedCustomAgentRoleId,
+  onSelectedCustomAgentRoleIdChange,
   isInteractionDisabled,
   controller,
   onRepositorySectionChange,
@@ -107,7 +111,16 @@ export function SettingsModalContent({
   }
 
   if (section === "custom-agent-roles") {
-    return <SettingsCustomAgentRolesSection disabled={isInteractionDisabled} />;
+    return (
+      <SettingsCustomAgentRolesSection
+        roles={snapshotDraft.customAgentRoles}
+        selectedRoleId={selectedCustomAgentRoleId}
+        validation={controller.customAgentRoleValidationState}
+        disabled={isInteractionDisabled}
+        onSelect={onSelectedCustomAgentRoleIdChange}
+        onUpdate={controller.updateCustomAgentRoles}
+      />
+    );
   }
 
   if (section === "prompts") {

@@ -8,13 +8,11 @@ import { QueryProvider } from "@/lib/query-provider";
 import { loadNotFoundPage } from "@/pages";
 import { AgentsPage } from "@/pages/agents/agents-page";
 import { KanbanPage } from "@/pages/kanban/kanban-page";
+import WorkspaceSessionsPage from "@/pages/workspace-sessions/workspace-sessions-page";
 import { AppStateProvider } from "@/state";
 import { KanbanBoardLoadingShell } from "./pages/kanban/kanban-board-loading-shell";
 
 const NotFoundPage = lazy(loadNotFoundPage);
-const WorkspaceSessionsPage = lazy(
-  () => import("./pages/workspace-sessions/workspace-sessions-page"),
-);
 
 export type AppRouterMode = "browser" | "hash";
 
@@ -75,10 +73,7 @@ export function App({ routerMode = "browser" }: AppProps): ReactElement {
                     element={withRouteFallback(<KanbanPage />, <KanbanRouteFallback />)}
                   />
                   <Route path="/agents" element={<AgentsPage />} />
-                  <Route
-                    path="/workspace-sessions"
-                    element={withRouteFallback(<WorkspaceSessionsPage />)}
-                  />
+                  <Route path="/workspace-sessions" element={<WorkspaceSessionsPage />} />
                   <Route
                     path="/planner"
                     element={<Navigate to="/agents?agent=planner" replace />}

@@ -7,6 +7,7 @@ import { prepareRepoConfigForSave } from "./repo-config";
 
 export const prepareSettingsSnapshotForSave = (
   snapshot: SettingsSnapshot,
+  { saveCustomAgentRoles = false }: { saveCustomAgentRoles?: boolean } = {},
 ): SettingsSnapshotSaveInput => {
   const workspaces = Object.fromEntries(
     Object.entries(snapshot.workspaces).map(([workspaceId, repoConfig]) => [
@@ -15,7 +16,7 @@ export const prepareSettingsSnapshotForSave = (
     ]),
   );
 
-  return {
+  const input: SettingsSnapshotSaveInput = {
     git: prepareGlobalGitSettingsForSave(snapshot.git),
     system: snapshot.system,
     general: snapshot.general,
@@ -30,4 +31,6 @@ export const prepareSettingsSnapshotForSave = (
     workspaces,
     globalPromptOverrides: preparePromptOverridesForSave(snapshot.globalPromptOverrides),
   };
+  if (saveCustomAgentRoles) input.customAgentRoles = snapshot.customAgentRoles;
+  return input;
 };

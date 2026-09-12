@@ -496,6 +496,7 @@ describe("session-start notifications", () => {
         workspaces: [{ workspaceId: "workspace-1", repoPath: "/tmp/repo" }],
         selectWorkspace: async () => {},
         loadTasks: async () => [baseInput.task],
+        loadWorkspaceSessions: async () => [],
         loadTaskSessions: async () => [
           {
             ...session,

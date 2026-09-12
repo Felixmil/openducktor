@@ -11,6 +11,7 @@ type SettingsModalFooterSaveState = {
 };
 
 type SettingsModalFooterValidationSummary = {
+  customAgentRoleFieldErrorCount: number;
   promptPlaceholderErrorCount: number;
   reusablePromptFieldErrorCount: number;
   runtimeAvailabilityErrorCount: number;
@@ -46,8 +47,7 @@ export function SettingsModalFooter({
   onCancel,
   onSave,
 }: SettingsModalFooterProps): ReactElement {
-  const editsCustomRoles = location.section === "custom-agent-roles";
-  const saveLabel = editsCustomRoles ? "Save other settings" : "Save Settings";
+  const hasCustomAgentRoleValidationErrors = validationSummary.customAgentRoleFieldErrorCount > 0;
   const hasPromptValidationErrors = validationSummary.promptPlaceholderErrorCount > 0;
   const hasReusablePromptValidationErrors = validationSummary.reusablePromptFieldErrorCount > 0;
   const hasRuntimeAvailabilityErrors = validationSummary.runtimeAvailabilityErrorCount > 0;
@@ -62,6 +62,7 @@ export function SettingsModalFooter({
     Boolean(errors.runtimeExecutablesError) ||
     hasPromptValidationErrors ||
     hasReusablePromptValidationErrors ||
+    hasCustomAgentRoleValidationErrors ||
     hasRuntimeAvailabilityErrors ||
     validationSummary.hasUnacknowledgedCodexDangerousSettings;
 
@@ -69,11 +70,17 @@ export function SettingsModalFooter({
     <div className="mt-0 flex shrink-0 items-center justify-start border-t border-border px-6 pb-4 pt-4">
       <div className="flex items-center gap-2">
         <Button type="button" variant="secondary" disabled={saveState.isSaving} onClick={onCancel}>
-          {editsCustomRoles ? "Close settings" : "Cancel"}
+          Cancel
         </Button>
       </div>
 
       <div className="flex grow items-center gap-2 text-sm">
+        {!errors.saveError && hasCustomAgentRoleValidationErrors ? (
+          <span className="text-destructive-muted">
+            {validationSummary.customAgentRoleFieldErrorCount} custom role field error
+            {validationSummary.customAgentRoleFieldErrorCount > 1 ? "s" : ""}.
+          </span>
+        ) : null}
         {errors.saveError ? (
           <span className="text-destructive-muted">{errors.saveError}</span>
         ) : (
@@ -136,13 +143,8 @@ export function SettingsModalFooter({
       </div>
 
       <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant={editsCustomRoles ? "outline" : "default"}
-          disabled={isSaveDisabled}
-          onClick={onSave}
-        >
-          {saveState.isSaving ? "Saving..." : saveLabel}
+        <Button type="button" disabled={isSaveDisabled} onClick={onSave}>
+          {saveState.isSaving ? "Saving..." : "Save Settings"}
         </Button>
       </div>
     </div>

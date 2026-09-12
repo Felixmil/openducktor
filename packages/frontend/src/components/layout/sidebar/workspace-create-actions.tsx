@@ -3,15 +3,21 @@ import { type ReactElement, useState } from "react";
 import { useNavigate } from "react-router";
 import { TaskCreateModal } from "@/components/features/task-create/task-create-modal";
 import { Button } from "@/components/ui/button";
+import { WorkspaceSessionCreateDialog } from "@/pages/workspace-sessions/workspace-session-create-dialog";
 import { useActiveWorkspace, useTasksState } from "@/state/app-state-provider";
 
 type WorkspaceCreateActionsProps = { compact?: boolean };
+
+function WorkspaceTaskCreateModal({ onOpenChange }: { onOpenChange: (open: boolean) => void }) {
+  const { tasks } = useTasksState();
+  return <TaskCreateModal open onOpenChange={onOpenChange} tasks={tasks} />;
+}
 
 export default function WorkspaceCreateActions({
   compact = false,
 }: WorkspaceCreateActionsProps): ReactElement {
   const [taskOpen, setTaskOpen] = useState(false);
-  const { tasks } = useTasksState();
+  const [chatOpen, setChatOpen] = useState(false);
   const workspace = useActiveWorkspace();
   const navigate = useNavigate();
   const buttonSize = compact ? "icon" : "default";
@@ -40,18 +46,24 @@ export default function WorkspaceCreateActions({
           aria-label="New chat"
           title="New chat"
           disabled={!workspace}
-          onClick={() => navigate("/workspace-sessions?create=session")}
+          onClick={() => setChatOpen(true)}
         >
           <MessageCirclePlus />
           {!compact && "New chat"}
         </Button>
       </div>
       {taskOpen && workspace && (
-        <TaskCreateModal
-          key={workspace.workspaceId}
-          open
-          onOpenChange={setTaskOpen}
-          tasks={tasks}
+        <WorkspaceTaskCreateModal key={workspace.workspaceId} onOpenChange={setTaskOpen} />
+      )}
+      {chatOpen && workspace && (
+        <WorkspaceSessionCreateDialog
+          key={`chat-${workspace.workspaceId}`}
+          workspace={workspace}
+          onClose={() => setChatOpen(false)}
+          onCreated={(session) => {
+            setChatOpen(false);
+            navigate(`/workspace-sessions?session=${encodeURIComponent(session.id)}`);
+          }}
         />
       )}
     </>

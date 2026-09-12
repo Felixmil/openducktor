@@ -4,6 +4,7 @@ import {
   workspaceSessionListInputSchema,
   workspaceSessionRefInputSchema,
   workspaceSessionRenameInputSchema,
+  workspaceSessionSetDraftModelInputSchema,
 } from "@openducktor/contracts";
 import { Effect } from "effect";
 import type { z } from "zod";
@@ -40,12 +41,30 @@ export const createWorkspaceSessionCommandHandlers = (
       ),
     workspace_session_get: (args) =>
       parseInput(workspaceSessionRefInputSchema, args).pipe(Effect.flatMap(service.get)),
+    workspace_session_archive_preview: (args) =>
+      parseInput(workspaceSessionRefInputSchema, args).pipe(Effect.flatMap(service.archivePreview)),
     workspace_session_create: (args) =>
       parseInput(workspaceSessionCreateInputSchema, args).pipe(
         Effect.flatMap((input) =>
           service
             .create(input)
             .pipe(Effect.tap(({ session }) => publishUpdated(input.workspaceId, session))),
+        ),
+      ),
+    workspace_session_start: (args) =>
+      parseInput(workspaceSessionRefInputSchema, args).pipe(
+        Effect.flatMap((input) =>
+          service
+            .start(input)
+            .pipe(Effect.tap(({ session }) => publishUpdated(input.workspaceId, session))),
+        ),
+      ),
+    workspace_session_set_draft_model: (args) =>
+      parseInput(workspaceSessionSetDraftModelInputSchema, args).pipe(
+        Effect.flatMap((input) =>
+          service
+            .setDraftModel(input)
+            .pipe(Effect.tap((session) => publishUpdated(input.workspaceId, session))),
         ),
       ),
     workspace_session_rename: (args) =>

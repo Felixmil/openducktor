@@ -27,6 +27,42 @@ import { createOpenCodeAgentEngineTestAdapter } from "./opencode-agent-engine.te
 import { acceptedUserMessage } from "./session-actions-send.test-support";
 
 describe("agent-orchestrator/handlers/session-actions send", () => {
+  test("an old send failure does not change a newer execution episode or its pending input", async () => {
+    const entered = Promise.withResolvers<void>();
+    const rejected = Promise.withResolvers<never>();
+    const adapter = createOpenCodeAgentEngineTestAdapter(new OpencodeSdkAdapter());
+    adapter.sendUserMessage = () => {
+      entered.resolve();
+      return rejected.promise;
+    };
+    const sessionsRef = createSessionsRef([
+      buildSession({ status: "idle", executionEpisodeId: "old" }),
+    ]);
+    const actions = createSessionActions({
+      adapter,
+      sessionsRef,
+      ensureExistingSessionRuntime: async () => {},
+    });
+    const sending = actions.sendAgentMessage(getSession(sessionsRef), [
+      { kind: "text", text: "Continue" },
+    ]);
+    await entered.promise;
+    const current = getSession(sessionsRef);
+    sessionsRef.current = replaceAgentSession(sessionsRef.current, {
+      ...current,
+      executionEpisodeId: "new",
+      status: "running",
+      pendingUserMessageStartedAt: undefined,
+      pendingQuestions: [{ requestId: "new-question", questions: [] }],
+    });
+    rejected.reject(new Error("Old send failed"));
+    await expect(sending).rejects.toThrow("Old send failed");
+    expect(getSession(sessionsRef)).toMatchObject({
+      status: "running",
+      executionEpisodeId: "new",
+      pendingQuestions: [{ requestId: "new-question", questions: [] }],
+    });
+  });
   test("delivers confirmed kickoff whitespace through the real sender to the adapter", async () => {
     const text = "\n\n  Custom instruction\n{{task.title}}\n ";
     const adapter = createOpenCodeAgentEngineTestAdapter(new OpencodeSdkAdapter());
@@ -684,7 +720,7 @@ describe("agent-orchestrator/handlers/session-actions send", () => {
     }
   });
 
-  test("marks session as error when send fails", async () => {
+  test("reports a send failure without assigning a runtime error", async () => {
     const adapter = new OpencodeSdkAdapter();
     const originalSendUserMessage = adapter.sendUserMessage;
     adapter.sendUserMessage = async () => {
@@ -707,7 +743,7 @@ describe("agent-orchestrator/handlers/session-actions send", () => {
       await expect(
         actions.sendAgentMessage(getSession(sessionsRef), [{ kind: "text", text: "hello" }]),
       ).rejects.toThrow("send failed");
-      expect(getSession(sessionsRef)?.status).toBe("error");
+      expect(getSession(sessionsRef)?.status).toBe("idle");
       const failureMessage = findSessionMessageForTest(getSession(sessionsRef), (message) =>
         message.content.includes("Failed to send message:"),
       );

@@ -5,7 +5,7 @@ import type {
   AgentSessionLivePendingQuestionRequest,
   AgentSessionLiveSnapshot,
   AgentSessionTranscriptEvent,
-  AgentSessionWorkflowScope,
+  AgentSessionScope,
   NotificationNavigationTarget,
   NotificationOccurrence,
   NotificationSessionIdentity,
@@ -20,12 +20,13 @@ type NotificationTaskIdentity = {
 
 type CreateSessionOccurrenceProjectorOptions = {
   repositoryLabel: string;
-  resolveAssociation(ref: AgentSessionLiveSnapshot["ref"]): AgentSessionWorkflowScope | null;
+  resolveAssociation(ref: AgentSessionLiveSnapshot["ref"]): AgentSessionScope | null;
   resolveTask(taskId: string): NotificationTaskIdentity | null;
 };
 
 type SessionProjection = {
-  association: AgentSessionWorkflowScope | null;
+  association: AgentSessionScope | null;
+  snapshot: AgentSessionLiveSnapshot;
   executionEpisodeId: string | undefined;
   errorNotified: boolean;
   idleNotified: boolean;
@@ -52,9 +53,10 @@ const toSessionIdentity = (ref: AgentSessionLiveSnapshot["ref"]): NotificationSe
 
 const createProjection = (
   snapshot: AgentSessionLiveSnapshot,
-  association: AgentSessionWorkflowScope | null,
+  association: AgentSessionScope | null,
 ): SessionProjection => ({
   association,
+  snapshot,
   executionEpisodeId: snapshot.executionEpisodeId,
   errorNotified: false,
   idleNotified: false,
@@ -162,7 +164,7 @@ export const createSessionOccurrenceProjector = ({
       status: input.status,
       navigationTarget: input.navigationTarget,
     };
-    if (projection.association) {
+    if (projection.association?.kind === "workflow") {
       const taskId = projection.association.taskId;
       occurrence.task = resolveTask(taskId) ?? { id: taskId };
       occurrence.role = projection.association.role;
@@ -177,7 +179,7 @@ export const createSessionOccurrenceProjector = ({
       repoPath: projection.ref.repoPath,
       session: toSessionIdentity(projection.ref),
     };
-    if (projection.association) target.taskId = projection.association.taskId;
+    if (projection.association?.kind === "workflow") target.taskId = projection.association.taskId;
     return target;
   };
 
@@ -208,6 +210,7 @@ export const createSessionOccurrenceProjector = ({
     const terminals = unownedTerminals.get(key);
     unownedTerminals.delete(key);
     if (!terminals) return [];
+    if (projection.association.kind === "repository") return [...terminals.values()];
     const { taskId, role } = projection.association;
     return [...terminals.values()].map((occurrence) => ({
       ...occurrence,
@@ -308,6 +311,7 @@ export const createSessionOccurrenceProjector = ({
 
     const ownershipResolved = !projection.association && association !== null;
     projection.association = association;
+    projection.snapshot = snapshot;
     projection.isSubagent = snapshot.parentExternalSessionId !== undefined;
     projection.ref = snapshot.ref;
     if (projection.executionEpisodeId !== snapshot.executionEpisodeId) {
@@ -419,6 +423,9 @@ export const createSessionOccurrenceProjector = ({
   };
 
   return {
+    reconcileAssociations(): NotificationOccurrence[] {
+      return [...sessions.values()].flatMap((projection) => applyUpsert(projection.snapshot));
+    },
     accept(envelope: AgentSessionLiveEnvelope): NotificationOccurrence[] {
       if (envelope.type === "snapshot") {
         if (envelope.isConnectionSnapshot) {

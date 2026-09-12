@@ -1,5 +1,4 @@
 import type {
-  AgentRepositorySessionStartInput,
   AgentSessionControlSendInput,
   AgentSessionControlSummary,
   AgentSessionLiveRef,
@@ -9,7 +8,7 @@ import type {
   AgentWorkflowSessionStartInput,
 } from "@openducktor/contracts";
 import { Effect } from "effect";
-import type { TaskService, TaskServiceError } from "../tasks/task-service";
+import type { TaskService } from "../tasks/task-service";
 import { validateTaskSessionWorkflowAvailable } from "../tasks/support/task-session-workflow-validation";
 import type { TaskSessionLifecycleCoordinator } from "../tasks/worktrees/task-session-lifecycle-coordinator";
 import {
@@ -23,6 +22,7 @@ import type { TaskStorePort } from "../../ports/task-repository-ports";
 import type { TaskSessionStartPreparationService } from "../tasks/worktrees/task-session-start-preparation-service";
 import { createStartTaskWorkflowSession } from "./task-workflow-session-start";
 import { storeWorkflowSession, toControlSessionRef } from "./task-workflow-session-storage";
+import type { AgentSessionOperationPolicy } from "./agent-session-operation-policy";
 
 export type RuntimeControl = Pick<
   AgentSessionLiveStateService,
@@ -145,13 +145,18 @@ const toRuntimeModel = (
   return variant === undefined ? { providerId, modelId } : { providerId, modelId, variant };
 };
 
-export const createTaskWorkflowSessionControlService = ({
+export type TaskSessionModelPersistence = (
+  input: Parameters<TaskSessions["agentSessionUpdateModel"]>[0],
+) => Effect.Effect<{ updated: boolean; publish: Effect.Effect<void, HostError> }, HostError>;
+
+export const createTaskWorkflowSessionPolicy = ({
   canonicalizeRepoPath,
   runtime,
   taskReader,
   tasks,
   taskLifecycle,
   taskSessionStart,
+  persistTaskModel,
 }: {
   canonicalizeRepoPath: CanonicalizeRepoPath;
   runtime: RuntimeControl;
@@ -159,15 +164,8 @@ export const createTaskWorkflowSessionControlService = ({
   tasks: TaskSessions;
   taskLifecycle: TaskLifecycle;
   taskSessionStart: TaskSessionStartPreparationService;
-}): Omit<RuntimeControl, "startSession"> & {
-  startSession: (
-    input: AgentRepositorySessionStartInput,
-  ) => Effect.Effect<AgentSessionControlSummary, HostError | TaskServiceError>;
-  startWorkflowSession: (
-    input: AgentWorkflowSessionStartInput,
-  ) => Effect.Effect<AgentSessionControlSummary, HostError | TaskServiceError>;
-} => ({
-  ...runtime,
+  persistTaskModel: TaskSessionModelPersistence;
+}) => ({
   startWorkflowSession: createStartTaskWorkflowSession({
     canonicalizeRepoPath,
     runtime,
@@ -175,49 +173,7 @@ export const createTaskWorkflowSessionControlService = ({
     taskLifecycle,
     taskSessionStart,
   }),
-  resumeSession: (input) => {
-    if (input.sessionScope.kind !== "workflow") {
-      return runtime.resumeSession(input);
-    }
-    const scope = input.sessionScope;
-    return Effect.scoped(
-      Effect.gen(function* () {
-        const repoPath = yield* canonicalizeRepoPath(input.repoPath);
-        yield* taskLifecycle.acquireLifecycle(repoPath, [scope.taskId], "resume session");
-        const stored = yield* readStoredWorkflowSession(
-          tasks,
-          {
-            repoPath,
-            runtimeKind: input.runtimeKind,
-            workingDirectory: input.workingDirectory,
-            externalSessionId: input.externalSessionId,
-            sessionScope: scope,
-          },
-          "read-resume",
-        );
-        const runtimeInput = {
-          ...input,
-          repoPath,
-          runtimeKind: stored.runtimeKind,
-          workingDirectory: stored.workingDirectory,
-        };
-        const summary = yield* runtime.resumeSession(runtimeInput);
-        return yield* storeControlResult(
-          tasks,
-          runtime,
-          {
-            repoPath,
-            sessionScope: scope,
-            model: input.model,
-          },
-          summary,
-          "release",
-          stored.selectedModel,
-        );
-      }),
-    );
-  },
-  forkSession: (input) => {
+  forkSession: (input: Parameters<RuntimeControl["forkSession"]>[0]) => {
     if (input.sessionScope.kind !== "workflow") {
       return runtime.forkSession(input);
     }
@@ -267,80 +223,82 @@ export const createTaskWorkflowSessionControlService = ({
       }),
     );
   },
-  sendUserMessage: (input) => {
-    if (input.sessionScope.kind !== "workflow") {
-      return runtime.sendUserMessage(input);
-    }
-    const scope = input.sessionScope;
-    return Effect.scoped(
+
+  forScope: (scope: AgentSessionWorkflowScope): AgentSessionOperationPolicy => ({
+    run: (ref, operation, effect) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          yield* taskLifecycle.acquireLifecycle(ref.repoPath, [scope.taskId], operation);
+          return yield* effect;
+        }),
+      ),
+    validateRef: (ref) =>
+      readStoredWorkflowSession(tasks, { ...ref, sessionScope: scope }, "send").pipe(Effect.asVoid),
+    prepareResume: (input) =>
       Effect.gen(function* () {
-        const repoPath = yield* canonicalizeRepoPath(input.repoPath);
-        yield* taskLifecycle.acquireLifecycle(repoPath, [scope.taskId], "send session message");
         const stored = yield* readStoredWorkflowSession(
           tasks,
-          {
-            repoPath,
-            runtimeKind: input.runtimeKind,
-            workingDirectory: input.workingDirectory,
-            externalSessionId: input.externalSessionId,
-            sessionScope: scope,
+          { ...input, sessionScope: scope },
+          "read-resume",
+        );
+        return {
+          input: {
+            ...input,
+            runtimeKind: stored.runtimeKind,
+            workingDirectory: stored.workingDirectory,
           },
+          save: (summary: AgentSessionControlSummary) =>
+            storeWorkflowSession(tasks, {
+              repoPath: input.repoPath,
+              sessionScope: scope,
+              model: input.model,
+              selectedModel: stored.selectedModel,
+              summary,
+            }),
+        };
+      }),
+    prepareSend: (input) =>
+      Effect.gen(function* () {
+        const stored = yield* readStoredWorkflowSession(
+          tasks,
+          { ...input, sessionScope: scope },
           "send",
         );
-        const runtimeInput: AgentSessionControlSendInput = {
+        const prepared: AgentSessionControlSendInput = {
           ...input,
-          repoPath,
           runtimeKind: stored.runtimeKind,
           workingDirectory: stored.workingDirectory,
         };
-        if (stored.selectedModel) {
-          runtimeInput.model = stored.selectedModel;
-        } else {
-          delete runtimeInput.model;
-        }
-        return yield* runtime.sendUserMessage(runtimeInput);
+        if (stored.selectedModel) prepared.model = stored.selectedModel;
+        else delete prepared.model;
+        return prepared;
       }),
-    );
-  },
-  updateSessionModel: (input) => {
-    if (input.sessionScope.kind !== "workflow") {
-      return runtime.updateSessionModel(input);
-    }
-    const scope = input.sessionScope;
-    return Effect.scoped(
+    recordAcceptedMessage: () => Effect.void,
+    prepareModelUpdate: (input) =>
       Effect.gen(function* () {
-        const repoPath = yield* canonicalizeRepoPath(input.repoPath);
-        yield* taskLifecycle.acquireLifecycle(repoPath, [scope.taskId], "change session model");
         const stored = yield* readStoredWorkflowSession(
           tasks,
-          {
-            repoPath,
-            runtimeKind: input.runtimeKind,
-            workingDirectory: input.workingDirectory,
-            externalSessionId: input.externalSessionId,
-            sessionScope: scope,
-          },
+          { ...input, sessionScope: scope },
           "update-model",
         );
         const runtimeInput = {
           ...input,
-          repoPath,
           runtimeKind: stored.runtimeKind,
           workingDirectory: stored.workingDirectory,
         };
-        yield* runtime.updateSessionModel(runtimeInput);
-        const profileId = stored.selectedModel?.profileId;
         const selectedModel = input.model
           ? {
               ...input.model,
               runtimeKind: stored.runtimeKind,
-              profileId,
+              profileId: stored.selectedModel?.profileId,
             }
           : null;
-        const storedUpdate = yield* Effect.either(
-          tasks
-            .agentSessionUpdateModel({
-              repoPath,
+        return {
+          input: runtimeInput,
+          previousModel: toRuntimeModel(stored.selectedModel),
+          save: Effect.suspend(() =>
+            persistTaskModel({
+              repoPath: input.repoPath,
               taskId: scope.taskId,
               identity: {
                 externalSessionId: stored.externalSessionId,
@@ -348,62 +306,25 @@ export const createTaskWorkflowSessionControlService = ({
                 workingDirectory: stored.workingDirectory,
               },
               selectedModel,
-            })
-            .pipe(
-              Effect.flatMap((updated) =>
-                updated
-                  ? Effect.void
-                  : Effect.fail(
-                      new HostOperationError({
-                        operation: "task-workflow-session.update-model",
-                        message: `Task '${scope.taskId}' did not update session '${stored.externalSessionId}'.`,
-                        details: {
-                          repoPath,
-                          taskId: scope.taskId,
-                          externalSessionId: stored.externalSessionId,
-                        },
-                      }),
-                    ),
-              ),
-              Effect.mapError((cause) =>
-                toHostOperationError(cause, "task-workflow-session.update-model", {
-                  repoPath,
-                  taskId: scope.taskId,
-                  externalSessionId: stored.externalSessionId,
-                }),
-              ),
-            ),
-        );
-        if (storedUpdate._tag === "Right") {
-          return;
-        }
-        const restored = yield* Effect.either(
-          runtime.updateSessionModel({
-            ...runtimeInput,
-            model: toRuntimeModel(stored.selectedModel),
-          }),
-        );
-        if (restored._tag === "Left") {
-          return yield* Effect.fail(
-            new HostOperationError({
-              operation: "task-workflow-session.update-model",
-              message: `${storedUpdate.left.message} Runtime model restore failed: ${restored.left.message}`,
-              cause: {
-                storeFailure: storedUpdate.left,
-                restoreFailure: restored.left,
-              },
-              details: {
-                repoPath,
-                taskId: scope.taskId,
-                externalSessionId: stored.externalSessionId,
-                storeFailure: storedUpdate.left,
-                restoreFailure: restored.left,
-              },
             }),
-          );
-        }
-        return yield* Effect.fail(storedUpdate.left);
+          ).pipe(
+            Effect.flatMap(({ updated, publish }) =>
+              updated
+                ? Effect.succeed(publish)
+                : Effect.fail(
+                    new HostOperationError({
+                      operation: "task-workflow-session.update-model",
+                      message: `Task '${scope.taskId}' did not update session '${stored.externalSessionId}'.`,
+                      details: {
+                        repoPath: input.repoPath,
+                        taskId: scope.taskId,
+                        externalSessionId: stored.externalSessionId,
+                      },
+                    }),
+                  ),
+            ),
+          ),
+        };
       }),
-    );
-  },
+  }),
 });

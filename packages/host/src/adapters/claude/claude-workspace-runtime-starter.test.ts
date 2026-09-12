@@ -1,4 +1,5 @@
 import { unexpectedRuntimeQueries } from "../../test-support/runtime-query-test-doubles";
+import { AgentSessionLiveRegistration } from "../../ports/agent-session-live-adapter-port";
 import { describe, expect, test } from "bun:test";
 import { RUNTIME_DESCRIPTORS_BY_KIND } from "@openducktor/contracts";
 import { Cause, Chunk, Effect, Exit } from "effect";
@@ -98,7 +99,10 @@ const createLiveSessionDependencies = ({
     releaseGeneratedImageBatch: () => Effect.dieMessage("Unexpected releaseGeneratedImageBatch"),
     describeGeneratedImages: () => Effect.dieMessage("Unexpected describeGeneratedImages"),
     resolveGeneratedImageSource: () => Effect.dieMessage("Unexpected generated image read"),
-    binding: { runtimeId: "runtime-1", runtimeKind: "claude", repoPath: "/repo" },
+    binding: new AgentSessionLiveRegistration(
+      { runtimeId: "runtime-1", runtimeKind: "claude", repoPath: "/repo" },
+      (mutation) => Effect.map(mutation, ({ value }) => value),
+    ),
     listSnapshots: () => Effect.succeed([]),
     readSnapshot: () => Effect.die("unused"),
     loadContext: () => Effect.die("unused"),
@@ -125,7 +129,10 @@ const createLiveSessionDependencies = ({
         }
         return Effect.succeed([]);
       }),
-    runAdapterMutation: (mutation) => Effect.map(mutation, ({ value }) => value),
+    createRuntimeRegistration: (binding) =>
+      new AgentSessionLiveRegistration(binding, (mutation) =>
+        Effect.map(mutation, ({ value }) => value),
+      ),
   };
   const prepareLiveSessionAdapter: ClaudeLiveSessionAdapterPreparer = () =>
     Effect.succeed({

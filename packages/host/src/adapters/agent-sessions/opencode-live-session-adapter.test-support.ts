@@ -1,4 +1,5 @@
 import { unexpectedNativeRuntimeQueries } from "../../test-support/runtime-query-test-doubles";
+import { AgentSessionLiveRegistration } from "../../ports/agent-session-live-adapter-port";
 import type {
   OpencodeNativeApprovalReply,
   OpencodeNativeQuestionReply,
@@ -188,13 +189,15 @@ export const createLifecycle = (
 ): RuntimeLiveSessionLifecyclePort => ({
   registerRuntimeAdapter: () => Effect.void,
   releaseRuntime: () => Effect.succeed([]),
-  runAdapterMutation: (mutation) =>
-    mutation.pipe(
-      Effect.tap((result) =>
-        Effect.sync(() => {
-          changes.push(...result.changes);
-        }),
+  createRuntimeRegistration: (binding) =>
+    new AgentSessionLiveRegistration(binding, (mutation) =>
+      mutation.pipe(
+        Effect.tap((result) =>
+          Effect.sync(() => {
+            changes.push(...result.changes);
+          }),
+        ),
+        Effect.map((result) => result.value),
       ),
-      Effect.map((result) => result.value),
     ),
 });

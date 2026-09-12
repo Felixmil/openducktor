@@ -16,6 +16,7 @@ import type { RepoAgentDefaultInput, RepoSettingsInput } from "@/types/state-sli
 import { checksQueryKeys } from "../../queries/checks";
 import { repositoryGitProviderContextQueryKeys } from "../../queries/git-provider-context";
 import { getProductionTaskViewSync } from "../../queries/task-view-sync";
+import { customAgentRolesQueryOptions } from "../../queries/workspace-sessions";
 import {
   loadRepoConfigFromQuery,
   loadSettingsSnapshotFromQuery,
@@ -181,6 +182,9 @@ export function useRepoSettingsOperations({
         staleTime: 0,
       });
       const changes = diffSettingsSnapshots(previousSnapshot, normalizedSnapshot);
+      if (changes.customAgentRolesChanged) {
+        await queryClient.invalidateQueries({ queryKey: customAgentRolesQueryOptions().queryKey });
+      }
       if (changes.workspacesChanged) {
         await queryClient.invalidateQueries({
           queryKey: REPO_CONFIG_QUERY_KEY_PREFIX,

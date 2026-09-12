@@ -761,10 +761,7 @@ export const MessageBody = ({
   }
 
   if (meta?.kind === "tool") {
-    if (!toolCallPresentation) {
-      throw new Error(`Tool Call presentation is missing for ${meta.tool}.`);
-    }
-    if (toolCallPresentation.kind === "task") {
+    if (toolCallPresentation?.kind === "task") {
       return (
         <AgentChatTaskTool
           meta={meta}

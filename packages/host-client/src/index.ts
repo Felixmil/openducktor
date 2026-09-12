@@ -65,10 +65,16 @@ const createHostClientApi = (invokeFn: InvokeFn): HostClientApi => {
     workspaceSessionGet: workspaceSessionClient.workspaceSessionGet.bind(workspaceSessionClient),
     workspaceSessionCreate:
       workspaceSessionClient.workspaceSessionCreate.bind(workspaceSessionClient),
+    workspaceSessionStart:
+      workspaceSessionClient.workspaceSessionStart.bind(workspaceSessionClient),
+    workspaceSessionSetDraftModel:
+      workspaceSessionClient.workspaceSessionSetDraftModel.bind(workspaceSessionClient),
     workspaceSessionRename:
       workspaceSessionClient.workspaceSessionRename.bind(workspaceSessionClient),
     workspaceSessionArchive:
       workspaceSessionClient.workspaceSessionArchive.bind(workspaceSessionClient),
+    workspaceSessionArchivePreview:
+      workspaceSessionClient.workspaceSessionArchivePreview.bind(workspaceSessionClient),
     workspaceSessionRestore:
       workspaceSessionClient.workspaceSessionRestore.bind(workspaceSessionClient),
     customAgentRoleList: workspaceClient.customAgentRoleList.bind(workspaceClient),

@@ -143,16 +143,6 @@ const preserveExistingToolValue = <T>(
   existing: T | undefined,
 ): T | undefined => (incoming !== undefined ? incoming : existing);
 
-const nextSessionStatusForToolPart = (
-  currentStatus: AgentSessionState["status"],
-  status: ToolPartStatus,
-): AgentSessionState["status"] => {
-  if (status === "pending" || status === "running") {
-    return "running";
-  }
-  return currentStatus;
-};
-
 const composeToolPartSessionUpdate = ({
   current,
   prepareCurrent,
@@ -227,7 +217,6 @@ const composeToolPartSessionUpdate = ({
 
   return {
     ...prepared,
-    status: nextSessionStatusForToolPart(prepared.status, status),
     messages: upsertSessionMessageByTimestamp(prepared, {
       id: messageId,
       role: "tool",

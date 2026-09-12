@@ -1,5 +1,5 @@
 import type { AgentModelCatalog, AgentModelSelection } from "@openducktor/core";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   toModelPickerCatalogResource,
   unavailableModelPickerCatalogResource,
@@ -15,7 +15,9 @@ import { useRuntimeModelCatalogs } from "@/state/queries/use-runtime-model-catal
 import type { AgentSessionIdentity } from "@/types/agent-orchestrator";
 
 type SessionModelTarget = {
-  identity: AgentSessionIdentity;
+  identity: AgentSessionIdentity | null;
+  runtimeKind?: AgentSessionIdentity["runtimeKind"];
+  updateDraft?: (selection: AgentModelSelection | null) => void;
   selection: AgentModelSelection | null;
   catalog: AgentModelCatalog | null;
   isLoading: boolean;
@@ -26,6 +28,11 @@ type SessionModelTarget = {
     selection: AgentModelSelection | null,
   ) => Promise<void> | void;
 };
+
+const rejectMissingSessionUpdate = (): never => {
+  throw new Error("No existing session is selected.");
+};
+const onModelPickerOpenChange = (): void => {};
 
 /** Uses the existing model picker and selection policies for both creation and chat. */
 export function useWorkspaceSessionModelPicker(repoPath: string, session?: SessionModelTarget) {
@@ -53,71 +60,79 @@ export function useWorkspaceSessionModelPicker(repoPath: string, session?: Sessi
     ? session.catalog
     : (resources.find((resource) => resource.runtimeKind === selection?.runtimeKind)?.catalog ??
       null);
-  const options = resolveModelSelectionOptions({
-    liveSession: session !== undefined,
-    selectionCatalog: catalog,
-    selectedModelSelection: selection,
-  });
+  const options = useMemo(
+    () =>
+      resolveModelSelectionOptions({
+        liveSession: hasSession,
+        selectionCatalog: catalog,
+        selectedModelSelection: selection,
+      }),
+    [hasSession, catalog, selection],
+  );
   const actions = useModelSelectionActions({
     loadedSessionIdentity: session?.identity ?? null,
-    updateAgentSessionModel:
-      session?.update ??
-      (() => {
-        throw new Error("No existing session is selected.");
-      }),
-    applyDraftSelection: setDraftSelection,
+    updateAgentSessionModel: session?.update ?? rejectMissingSessionUpdate,
+    applyDraftSelection: session?.updateDraft ?? setDraftSelection,
     selectedModelSelection: selection,
     selectionCatalog: catalog,
-    selectedRuntimeKind: session?.identity.runtimeKind ?? selection?.runtimeKind ?? null,
+    selectedRuntimeKind:
+      session?.identity?.runtimeKind ?? session?.runtimeKind ?? selection?.runtimeKind ?? null,
   });
-  const runtimes: ModelPickerRuntime[] = definitions.map((descriptor) => {
-    if (session)
-      return {
-        descriptor,
-        resource:
-          descriptor.kind === session.identity.runtimeKind
+  const creationResources = session ? null : resources;
+  const runtimes = useMemo<ModelPickerRuntime[]>(
+    () =>
+      definitions.map((descriptor) => {
+        if (session)
+          return {
+            descriptor,
+            resource:
+              descriptor.kind === (session.identity?.runtimeKind ?? session.runtimeKind)
+                ? toModelPickerCatalogResource({
+                    catalog: session.catalog,
+                    isFetching: session.isLoading,
+                    error: session.error,
+                    isAvailable: true,
+                    unavailableReason: "Session model catalog is unavailable.",
+                    retry: session.retry,
+                  })
+                : unavailableModelPickerCatalogResource(
+                    "Start a new session to use another runtime.",
+                  ),
+          };
+        const resource = creationResources?.find((entry) => entry.runtimeKind === descriptor.kind);
+        return {
+          descriptor,
+          resource: resource
             ? toModelPickerCatalogResource({
-                catalog: session.catalog,
-                isFetching: session.isLoading,
-                error: session.error,
-                isAvailable: true,
-                unavailableReason: "Session model catalog is unavailable.",
-                retry: session.retry,
+                catalog: resource.catalog,
+                isFetching: resource.isFetching,
+                error: resource.error,
+                isAvailable: resource.isEnabled,
+                unavailableReason: "Runtime catalog is unavailable.",
+                retry: resource.retry,
               })
-            : unavailableModelPickerCatalogResource("Start a new session to use another runtime."),
-      };
-    const resource = resources.find((entry) => entry.runtimeKind === descriptor.kind);
-    return {
-      descriptor,
-      resource: resource
-        ? toModelPickerCatalogResource({
-            catalog: resource.catalog,
-            isFetching: resource.isFetching,
-            error: resource.error,
-            isAvailable: resource.isEnabled,
-            unavailableReason: "Runtime catalog is unavailable.",
-            retry: resource.retry,
-          })
-        : unavailableModelPickerCatalogResource("Runtime catalog is unavailable."),
-    };
-  });
-  const onValueChange = (value: ModelPickerValue) => {
-    const runtime = runtimes.find((entry) => entry.descriptor.kind === value.runtimeKind);
-    if (runtime?.resource.status === "ready")
-      actions.handleSelectModelPair(value, runtime.resource.catalog);
-  };
-  const runtimeKind = session?.identity.runtimeKind ?? selection?.runtimeKind;
+            : unavailableModelPickerCatalogResource("Runtime catalog is unavailable."),
+        };
+      }),
+    [definitions, session, creationResources],
+  );
+  const { handleSelectModelPair } = actions;
+  const onValueChange = useCallback(
+    (value: ModelPickerValue) => {
+      const runtime = runtimes.find((entry) => entry.descriptor.kind === value.runtimeKind);
+      if (runtime?.resource.status === "ready")
+        handleSelectModelPair(value, runtime.resource.catalog);
+    },
+    [runtimes, handleSelectModelPair],
+  );
+  const runtimeKind =
+    session?.identity?.runtimeKind ?? session?.runtimeKind ?? selection?.runtimeKind;
   const supportsProfiles =
     definitions.find((entry) => entry.kind === runtimeKind)?.capabilities.optionalSurfaces
       .supportsProfiles ?? false;
-  return {
-    selection,
-    catalog,
-    supportsProfiles,
-    ...options,
-    ...actions,
-    isLoading: session ? session.isLoading : resources.some((entry) => entry.isFetching),
-    modelPicker: {
+  const sessionRuntimeKind = session?.identity?.runtimeKind ?? session?.runtimeKind;
+  const modelPicker = useMemo(
+    () => ({
       runtimes,
       value: selection?.runtimeKind
         ? {
@@ -126,15 +141,26 @@ export function useWorkspaceSessionModelPicker(repoPath: string, session?: Sessi
             modelId: selection.modelId,
           }
         : null,
-      selectionPolicy: session
+      selectionPolicy: sessionRuntimeKind
         ? {
             kind: "runtime_locked" as const,
-            runtimeKind: session.identity.runtimeKind,
+            runtimeKind: sessionRuntimeKind,
             reason: "An existing session cannot change runtime.",
           }
         : { kind: "editable" as const },
       favoriteState,
       onValueChange,
-    },
+      onOpenChange: onModelPickerOpenChange,
+    }),
+    [runtimes, selection, sessionRuntimeKind, favoriteState, onValueChange],
+  );
+  return {
+    selection,
+    catalog,
+    supportsProfiles,
+    ...options,
+    ...actions,
+    isLoading: session ? session.isLoading : resources.some((entry) => entry.isFetching),
+    modelPicker,
   };
 }

@@ -241,6 +241,7 @@ export const createSettingsSnapshotFixture = (
       ...appearance,
     },
     chat: createChatSettingsFixture(chat),
+    customAgentRoles: [],
     reusablePrompts: [],
     kanban: {
       ...DEFAULT_KANBAN_SETTINGS,

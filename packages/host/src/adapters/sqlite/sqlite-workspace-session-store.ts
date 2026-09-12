@@ -195,6 +195,33 @@ export const createSqliteWorkspaceSessionStore = (
           return record;
         }),
       ),
+    bindRuntimeSession: (input) =>
+      withDatabase(input, "workspaceSessionStore.bindRuntimeSession", (session) =>
+        session.transaction("workspaceSessionStore.bindRuntimeSession", (transaction) =>
+          Effect.gen(function* () {
+            const current = yield* getRecord(transaction, input.sessionId);
+            if (current.externalSessionId !== null || current.archivedAt !== null) {
+              return yield* new HostValidationError({
+                field: "sessionId",
+                message: "Only an active draft can bind a runtime session.",
+              });
+            }
+            const next = yield* validateRecord({
+              ...current,
+              externalSessionId: input.externalSessionId,
+            });
+            yield* transaction.execute(
+              (database) =>
+                database
+                  .update(workspaceSessions)
+                  .set(encodeRecord(next))
+                  .where(eq(workspaceSessions.id, input.sessionId)),
+              "workspaceSessionStore.bindRuntimeSession",
+            );
+            return next;
+          }),
+        ),
+      ),
     rename: (input) =>
       update(input, "workspaceSessionStore.rename", (current) => {
         const title = input.manualTitle?.trim().replace(/\s+/g, " ");
@@ -204,11 +231,13 @@ export const createSqliteWorkspaceSessionStore = (
       update(input, "workspaceSessionStore.archive", (current) => ({
         ...current,
         archivedAt: current.archivedAt ?? input.archivedAt,
+        executionTarget: input.executionTarget ?? current.executionTarget,
       })),
     restore: (input) =>
       update(input, "workspaceSessionStore.restore", (current) => ({
         ...current,
         archivedAt: null,
+        executionTarget: input.executionTarget ?? current.executionTarget,
       })),
     setSelectedModel: (input) =>
       update(input, "workspaceSessionStore.setSelectedModel", (current) => ({
@@ -220,6 +249,24 @@ export const createSqliteWorkspaceSessionStore = (
         ...current,
         generatedTitle: input.generatedTitle,
       })),
+    recordAcceptedMessage: (input) =>
+      Effect.gen(function* () {
+        const activity = yield* Effect.try({
+          try: () =>
+            workspaceSessionActivitySchema.parse({
+              type: "user_message",
+              occurredAt: input.occurredAt,
+            }),
+          catch: (cause) =>
+            new HostValidationError({ message: "Invalid Workspace Session activity.", cause }),
+        });
+        return yield* update(input, "workspaceSessionStore.recordAcceptedMessage", (current) => ({
+          ...current,
+          generatedTitle: current.generatedTitle ?? input.generatedTitle,
+          updatedAt: Math.max(current.updatedAt, activity.occurredAt),
+          selectedModel: input.selectedModel ?? current.selectedModel,
+        }));
+      }),
     recordActivity: (input) =>
       Effect.gen(function* () {
         const activity = yield* Effect.try({

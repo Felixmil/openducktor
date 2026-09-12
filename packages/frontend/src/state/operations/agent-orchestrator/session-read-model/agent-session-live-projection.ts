@@ -28,10 +28,11 @@ import type {
   AgentSessionState,
 } from "@/types/agent-orchestrator";
 import { createSessionMessagesState } from "../support/messages";
+import { projectSessionTranscriptActivity } from "./agent-session-live-activity";
 
 type LiveProjectionEnvelope = Extract<
   AgentSessionLiveEnvelope,
-  { type: "session_upsert" | "session_removed" }
+  { type: "session_upsert" | "session_removed" | "transcript_event" }
 >;
 
 const toSessionIdentity = (ref: AgentSessionLiveRef): AgentSessionIdentity => ({
@@ -51,8 +52,9 @@ const isTerminalSessionStatus = (status: AgentSessionState["status"]): boolean =
 const projectObservedSessionActivity = (
   current: Pick<AgentSessionState, "status" | "pendingUserMessageStartedAt">,
   observedStatus: AgentSessionState["status"],
+  preserveTerminal = true,
 ): Pick<AgentSessionState, "status" | "pendingUserMessageStartedAt"> => {
-  if (isTerminalSessionStatus(current.status)) {
+  if (preserveTerminal && observedStatus === "idle" && isTerminalSessionStatus(current.status)) {
     return { status: current.status, pendingUserMessageStartedAt: undefined };
   }
   if (observedStatus !== "idle") {
@@ -244,25 +246,23 @@ const applyDirectSnapshot = (
     : transition.association;
   const selectedModel = current.selectedModel ?? snapshot.model ?? null;
   const currentContextUsage = current.contextUsage ?? null;
-  const contextUsage = sameContextUsage(currentContextUsage, snapshot.contextUsage)
-    ? currentContextUsage
-    : toContextUsage(snapshot.contextUsage);
-  if (isTerminalSessionStatus(current.status)) {
-    return {
-      ...current,
-      sessionAssociation,
-      livePresence: "present",
-      selectedModel,
-      contextUsage: contextUsage ?? currentContextUsage,
-      liveParentExternalSessionId: snapshot.parentExternalSessionId,
-      pendingApprovals: [],
-      pendingQuestions: [],
-      pendingUserMessageStartedAt: undefined,
-      runtimeStatusMessage: null,
-    };
-  }
+  const preserveLastMeasurement =
+    snapshot.contextUsage === null && (current.status === "stopped" || current.status === "error");
+  const contextUsage =
+    preserveLastMeasurement || sameContextUsage(currentContextUsage, snapshot.contextUsage)
+      ? currentContextUsage
+      : toContextUsage(snapshot.contextUsage);
   const snapshotStatus = agentSessionStatusFromActivity(snapshot.activity);
-  const activity = projectObservedSessionActivity(current, snapshotStatus);
+  const isNewEpisode =
+    snapshot.executionEpisodeId !== undefined &&
+    snapshot.executionEpisodeId !== current.executionEpisodeId;
+  const hasPendingInput =
+    snapshot.pendingApprovals.length > 0 || snapshot.pendingQuestions.length > 0;
+  const activity = projectObservedSessionActivity(
+    current,
+    snapshotStatus,
+    !isNewEpisode && !hasPendingInput,
+  );
   const directApprovals = snapshot.pendingApprovals.map((request) => toApprovalRequest(request));
   const directQuestions = snapshot.pendingQuestions.map((request) => toQuestionRequest(request));
   const childApprovals = current.pendingApprovals.filter((request) => request.source !== undefined);
@@ -271,6 +271,7 @@ const applyDirectSnapshot = (
   return {
     ...current,
     sessionAssociation,
+    executionEpisodeId: snapshot.executionEpisodeId ?? current.executionEpisodeId,
     title: snapshot.title,
     selectedModel,
     ...activity,
@@ -487,6 +488,14 @@ export const applyAgentSessionLiveDelta = ({
   current: AgentSessionCollection;
   envelope: LiveProjectionEnvelope;
 }): AgentSessionCollection => {
+  if (envelope.type === "transcript_event") {
+    const session = getAgentSession(current, toSessionIdentity(envelope.event.sessionRef));
+    if (!session) return current;
+    const next = projectSessionTranscriptActivity(session, envelope.event);
+    return next === session
+      ? current
+      : rebuildProjectedPendingInput(replaceAgentSession(current, next));
+  }
   if (envelope.type === "session_upsert") {
     const identity = toSessionIdentity(envelope.session.ref);
     const session = getAgentSession(current, identity);

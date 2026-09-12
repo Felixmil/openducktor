@@ -1,3 +1,4 @@
+import { AgentSessionLiveRegistration } from "../../ports/agent-session-live-adapter-port";
 import { describe, expect, test } from "bun:test";
 import { RUNTIME_DESCRIPTORS_BY_KIND, repoConfigSchema } from "@openducktor/contracts";
 import { Effect } from "effect";
@@ -81,7 +82,10 @@ describe("createClaudeRuntimeComposition", () => {
           calls.released += 1;
           return [];
         }),
-      runAdapterMutation: (mutation) => Effect.map(mutation, ({ value }) => value),
+      createRuntimeRegistration: (binding) =>
+        new AgentSessionLiveRegistration(binding, (mutation) =>
+          Effect.map(mutation, ({ value }) => value),
+        ),
     };
     const composition = createClaudeRuntimeComposition({
       liveSessionLifecycle,

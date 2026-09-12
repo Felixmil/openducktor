@@ -3,6 +3,7 @@ import type {
   RuntimeKind,
   WorkspaceSession,
   WorkspaceSessionActivity,
+  WorkspaceSessionExecutionTarget,
 } from "@openducktor/contracts";
 import type { Effect } from "effect";
 import type { TaskStoreError } from "./task-repository-ports";
@@ -19,12 +20,27 @@ export type WorkspaceSessionStorePort = {
     input: WorkspaceSessionStoreScope & { runtimeKind: RuntimeKind; externalSessionId: string },
   ): Result<WorkspaceSession | null>;
   create(input: WorkspaceSessionStoreScope & { session: WorkspaceSession }): Result;
+  bindRuntimeSession(input: WorkspaceSessionStoreRef & { externalSessionId: string }): Result;
   rename(input: WorkspaceSessionStoreRef & { manualTitle: string | null }): Result;
-  archive(input: WorkspaceSessionStoreRef & { archivedAt: number }): Result;
-  restore(input: WorkspaceSessionStoreRef): Result;
+  archive(
+    input: WorkspaceSessionStoreRef & {
+      archivedAt: number;
+      executionTarget?: WorkspaceSessionExecutionTarget;
+    },
+  ): Result;
+  restore(
+    input: WorkspaceSessionStoreRef & { executionTarget?: WorkspaceSessionExecutionTarget },
+  ): Result;
   setSelectedModel(
     input: WorkspaceSessionStoreRef & { selectedModel: AgentSessionModelSelection },
   ): Result;
   setGeneratedTitle(input: WorkspaceSessionStoreRef & { generatedTitle: string }): Result;
+  recordAcceptedMessage(
+    input: WorkspaceSessionStoreRef & {
+      generatedTitle: string | null;
+      occurredAt: number;
+      selectedModel?: AgentSessionModelSelection;
+    },
+  ): Result;
   recordActivity(input: WorkspaceSessionStoreRef & { activity: WorkspaceSessionActivity }): Result;
 };

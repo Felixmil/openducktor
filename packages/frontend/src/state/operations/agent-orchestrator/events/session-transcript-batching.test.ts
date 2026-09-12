@@ -147,7 +147,8 @@ describe("agent-orchestrator session transcript events", () => {
       },
     });
 
-    expect(updateSessionCalls).toBe(2);
+    // Activity and transcript updates use separate ordered stages.
+    expect(updateSessionCalls).toBe(3);
     expect(getSessionMessages(sessionsRef).map((message) => message.role)).toEqual(["user"]);
   });
 
@@ -251,7 +252,8 @@ describe("agent-orchestrator session transcript events", () => {
       },
     });
 
-    expect(updateSessionCalls).toBe(2);
+    // Activity and transcript updates use separate ordered stages.
+    expect(updateSessionCalls).toBe(3);
     const assistantMessage = getSessionMessages(sessionsRef).find(
       (message) => message.id === "assistant-1",
     );

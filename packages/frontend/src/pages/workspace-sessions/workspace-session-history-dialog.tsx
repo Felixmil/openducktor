@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LoaderCircle, RotateCcw } from "lucide-react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogBody,
@@ -10,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { errorMessage } from "@/lib/errors";
+import { invalidateRepoBranchesQuery } from "@/state/queries/git";
 import { host } from "@/state/operations/host";
 import { workspaceSessionTitle } from "@/state/operations/agent-orchestrator/session-read-model/workspace-session-records";
 import {
@@ -19,16 +22,30 @@ import {
 
 export function WorkspaceSessionHistoryDialog({
   workspaceId,
+  repoPath,
   onClose,
 }: {
   workspaceId: string;
+  repoPath: string;
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
   const archived = useQuery(workspaceSessionListQueryOptions(workspaceId, true));
+  const [filter, setFilter] = useState("");
+  const search = filter.trim().toLowerCase();
+  const filteredSessions = archived.data?.filter((record) =>
+    [
+      workspaceSessionTitle(record),
+      record.roleSnapshot?.name ?? "No role",
+      record.executionTarget.workingDirectory,
+    ].some((value) => value.toLowerCase().includes(search)),
+  );
   const restore = useMutation({
     mutationFn: (sessionId: string) => host.workspaceSessionRestore({ workspaceId, sessionId }),
     onSuccess: (session) => updateWorkspaceSessionQueries(queryClient, workspaceId, session),
+    onSettled: () => {
+      void invalidateRepoBranchesQuery(queryClient, repoPath);
+    },
   });
   return (
     <Dialog
@@ -42,6 +59,14 @@ export function WorkspaceSessionHistoryDialog({
           <DialogTitle>Archived chats</DialogTitle>
           <DialogDescription>Restore a chat to return it to your workspace.</DialogDescription>
         </DialogHeader>
+        <Input
+          type="search"
+          aria-label="Filter archived chats"
+          placeholder="Filter by title, role, or path…"
+          value={filter}
+          onChange={(event) => setFilter(event.target.value)}
+          className="mt-4 shrink-0"
+        />
         <DialogBody className="mt-4 flex max-h-96 flex-col gap-2">
           {archived.isPending && <p role="status">Loading archived sessions…</p>}
           {archived.isError && (
@@ -57,7 +82,7 @@ export function WorkspaceSessionHistoryDialog({
               {errorMessage(restore.error)}
             </p>
           )}
-          {archived.data?.map((record) => (
+          {filteredSessions?.map((record) => (
             <div
               key={record.id}
               className="flex items-center gap-4 rounded-lg border border-border p-3"
@@ -71,6 +96,12 @@ export function WorkspaceSessionHistoryDialog({
                   {record.roleSnapshot?.name ?? "No role"} ·{" "}
                   {record.executionTarget.workingDirectory}
                 </p>
+                {record.executionTarget.kind === "local_worktree" &&
+                  record.executionTarget.worktreeState === "removed" && (
+                    <p className="text-xs text-muted-foreground">
+                      Worktree removed. Restore recreates it from the default branch.
+                    </p>
+                  )}
               </div>
               <Button
                 size="sm"
@@ -90,6 +121,11 @@ export function WorkspaceSessionHistoryDialog({
           ))}
           {archived.data?.length === 0 && (
             <p className="py-6 text-center text-sm text-muted-foreground">No archived sessions.</p>
+          )}
+          {archived.data && archived.data.length > 0 && filteredSessions?.length === 0 && (
+            <p role="status" className="py-6 text-center text-sm text-muted-foreground">
+              No chats match your filter.
+            </p>
           )}
         </DialogBody>
       </DialogContent>

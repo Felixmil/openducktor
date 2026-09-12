@@ -9,6 +9,7 @@ import type { AgentSessionSummary, AgentUserMessagePart } from "@openducktor/cor
 import { Effect } from "effect";
 import { toAgentSessionControlSummary } from "../../application/agent-sessions/agent-session-control-summary";
 import { type HostError, toHostOperationError } from "../../effect/host-errors";
+import { AgentSessionMessageAcceptedError } from "../../ports/agent-session-send-error";
 import type {
   AgentSessionControlAdapterPort,
   AgentSessionLiveAdapterMutation,
@@ -195,6 +196,14 @@ export const createOpenCodeSessionControlAdapter = ({
                   changes: [{ type: "transcript_event", event }],
                 };
               }),
+            ).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new AgentSessionMessageAcceptedError(
+                    { sessionRef, acceptedMessage: value, stage: "live_update" },
+                    cause,
+                  ),
+              ),
             ),
           ),
         ),

@@ -25,3 +25,4 @@ packages/openducktor-mcp/tsconfig.tsbuildinfo
 # Added by code-review-graph
 .code-review-graph/
 .pixel/
+.wayfinder/

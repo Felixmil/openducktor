@@ -11,12 +11,13 @@ import { IssueTypeBadge } from "@/components/features/kanban/issue-type-badge";
 import { PriorityBadge } from "@/components/features/kanban/priority-badge";
 import { TaskIdBadge } from "@/components/features/tasks/task-id-badge";
 import { OpenTaskDetailsButton } from "@/components/features/tasks/open-task-details-button";
+import { TaskDetailsSheetPlaceholder } from "@/components/features/task-details/task-details-sheet-placeholder";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { TaskLabelChip } from "@/components/ui/task-label-chip";
 import { statusBadgeClassName, statusLabel } from "@/lib/task-status-presentation";
 import type { ToolMeta } from "./agent-chat-message-card-model.types";
-import { RegularToolMessage } from "./agent-chat-message-card-tool-presenters";
+import { RegularToolMessage } from "./agent-chat-regular-tool-message";
 import { getToolLifecyclePhase } from "./tool-lifecycle";
 
 type TaskTool = "create_task" | "search_tasks";
@@ -103,7 +104,7 @@ const TaskResultCard = ({ task }: { task: PublicTaskSummaryTask }) => {
         </CardContent>
       </Card>
       {detailsOpen && (
-        <Suspense fallback={<p role="status">Loading task details…</p>}>
+        <Suspense fallback={<TaskDetailsSheetPlaceholder onOpenChange={setDetailsOpen} />}>
           <TaskDetailsSheetViewer taskId={task.id} onOpenChange={setDetailsOpen} />
         </Suspense>
       )}

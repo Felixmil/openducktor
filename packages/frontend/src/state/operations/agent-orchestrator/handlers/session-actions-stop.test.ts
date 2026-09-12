@@ -3,6 +3,7 @@ import { OpencodeSdkAdapter } from "@openducktor/adapters-opencode-sdk";
 import type { SessionRef } from "@openducktor/core";
 import { agentSessionIdentityKey } from "@/lib/agent-session-identity";
 import { createAgentSessionsStore } from "@/state/agent-sessions-store";
+import { replaceAgentSession } from "@/state/agent-session-collection";
 import {
   findSessionMessageForTest,
   lastSessionMessageForTest,
@@ -19,6 +20,34 @@ import {
   getSession,
 } from "./session-actions.test-helpers";
 describe("agent-orchestrator/handlers/session-actions stop", () => {
+  test("an old stop result does not stop a new execution episode", async () => {
+    const entered = Promise.withResolvers<void>();
+    const finish = Promise.withResolvers<void>();
+    const adapter = new OpencodeSdkAdapter();
+    adapter.stopSession = () => {
+      entered.resolve();
+      return finish.promise;
+    };
+    const sessionsRef = createSessionsRef([
+      buildSession({ status: "running", executionEpisodeId: "old" }),
+    ]);
+    const actions = createSessionActions({ adapter, sessionsRef });
+    const stopping = actions.stopAgentSession(getSession(sessionsRef));
+    await entered.promise;
+    sessionsRef.current = replaceAgentSession(sessionsRef.current, {
+      ...getSession(sessionsRef),
+      status: "running",
+      executionEpisodeId: "new",
+      pendingQuestions: [{ requestId: "answer", questions: [] }],
+    });
+    finish.resolve();
+    await stopping;
+    expect(getSession(sessionsRef)).toMatchObject({
+      status: "running",
+      executionEpisodeId: "new",
+      pendingQuestions: [{ requestId: "answer", questions: [] }],
+    });
+  });
   test("stops a workspace-scoped planner session and clears pending state", async () => {
     const adapter = new OpencodeSdkAdapter();
     const stopTargets: SessionRef[] = [];

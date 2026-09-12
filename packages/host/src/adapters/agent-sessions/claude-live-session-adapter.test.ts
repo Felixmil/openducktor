@@ -1,8 +1,10 @@
 import { unexpectedRuntimeQueries } from "../../test-support/runtime-query-test-doubles";
+import { AgentSessionLiveRegistration } from "../../ports/agent-session-live-adapter-port";
 import { describe, expect, test } from "bun:test";
 import { RUNTIME_DESCRIPTORS_BY_KIND, repoConfigSchema } from "@openducktor/contracts";
 import type { AgentSessionSummary } from "@openducktor/core";
 import { Effect } from "effect";
+import { AgentSessionMessageAcceptedError } from "../../ports/agent-session-send-error";
 import type {
   ClaudeAgentSdkService,
   ClaudePendingInputResolution,
@@ -142,6 +144,7 @@ const createHarness = async (
   let stopSessionsForRuntimeImpl: ClaudeAgentSdkService["stopSessionsForRuntime"] = () =>
     Effect.void;
   let failNextMutationAfterApply = false;
+  let failMutationEventType: string | undefined;
   let mutationBarrier: MutationBarrier | undefined;
   startSessionImpl = () => {
     eventHub.emit(session, {
@@ -188,34 +191,43 @@ const createHarness = async (
     releaseSession: (input: Parameters<ClaudeAgentSdkService["releaseSession"]>[0]) =>
       releaseSessionImpl(input),
   } satisfies Parameters<typeof createClaudeLiveSessionAdapterPreparer>[0]["service"];
-  const liveSessionLifecycle: Pick<RuntimeLiveSessionLifecyclePort, "runAdapterMutation"> = {
-    runAdapterMutation: (mutation) => {
-      const barrier = mutationBarrier;
-      mutationBarrier = undefined;
-      const waitForBarrier = barrier
-        ? Effect.promise(async () => {
-            barrier.entered.resolve();
-            await barrier.release.promise;
-          })
-        : Effect.void;
-      return waitForBarrier.pipe(
-        Effect.zipRight(
-          Effect.flatMap(mutation, ({ value, changes: mutationChanges }) => {
-            if (failNextMutationAfterApply) {
-              failNextMutationAfterApply = false;
-              return Effect.fail(
-                new HostOperationError({
-                  operation: "test.publish",
-                  message: "Publication failed.",
-                }),
-              );
-            }
-            changes.push(...mutationChanges);
-            return Effect.succeed(value);
-          }),
-        ),
-      );
-    },
+  const liveSessionLifecycle: Pick<RuntimeLiveSessionLifecyclePort, "createRuntimeRegistration"> = {
+    createRuntimeRegistration: (binding) =>
+      new AgentSessionLiveRegistration(binding, (mutation) => {
+        const barrier = mutationBarrier;
+        mutationBarrier = undefined;
+        const waitForBarrier = barrier
+          ? Effect.promise(async () => {
+              barrier.entered.resolve();
+              await barrier.release.promise;
+            })
+          : Effect.void;
+        return waitForBarrier.pipe(
+          Effect.zipRight(
+            Effect.flatMap(mutation, ({ value, changes: mutationChanges }) => {
+              if (
+                failNextMutationAfterApply &&
+                (failMutationEventType === undefined ||
+                  mutationChanges.some(
+                    (change) =>
+                      change.type === "transcript_event" &&
+                      change.event.type === failMutationEventType,
+                  ))
+              ) {
+                failNextMutationAfterApply = false;
+                return Effect.fail(
+                  new HostOperationError({
+                    operation: "test.publish",
+                    message: "Publication failed.",
+                  }),
+                );
+              }
+              changes.push(...mutationChanges);
+              return Effect.succeed(value);
+            }),
+          ),
+        );
+      }),
   };
   const prepare = createClaudeLiveSessionAdapterPreparer({
     eventHub,
@@ -252,8 +264,9 @@ const createHarness = async (
       mutationBarrier = barrier;
       return barrier;
     },
-    failNextMutationAfterStateApply: () => {
+    failNextMutationAfterStateApply: (eventType?: string) => {
       failNextMutationAfterApply = true;
+      failMutationEventType = eventType;
     },
     setPrepareApprovalReply: (implementation: ClaudeAgentSdkService["prepareApprovalReply"]) => {
       prepareApprovalReplyImpl = implementation;
@@ -285,6 +298,53 @@ const transcriptEventTypes = (changes: readonly AgentSessionLiveAdapterChange[])
   changes.flatMap((change) => (change.type === "transcript_event" ? [change.event.type] : []));
 
 describe("Claude host live-session adapter", () => {
+  test.each(["user_message", "session_status"])(
+    "retains acceptance when %s publication fails",
+    async (eventType) => {
+      const harness = await createHarness();
+      await Effect.runPromise(
+        harness.adapter.resumeSession({ ...startInput, externalSessionId: "session-1" }),
+      );
+      let sends = 0;
+      harness.setSendUserMessage((input) =>
+        Effect.sync(() => {
+          sends += 1;
+          harness.eventHub.emit(session, {
+            type: "session_status",
+            externalSessionId: input.externalSessionId,
+            timestamp: "2026-09-12T10:00:00Z",
+            status: { type: "busy", message: null },
+          });
+          return {
+            type: "user_message" as const,
+            externalSessionId: input.externalSessionId,
+            timestamp: "2026-09-12T10:00:00Z",
+            messageId: "accepted-1",
+            message: "Hello",
+            parts: [],
+            state: "read" as const,
+          };
+        }),
+      );
+      harness.failNextMutationAfterStateApply(eventType);
+      const result = await Effect.runPromise(
+        Effect.either(
+          harness.adapter.sendUserMessage({
+            ...startInput,
+            externalSessionId: "session-1",
+            parts: [{ kind: "text", text: "Hello" }],
+          }),
+        ),
+      );
+      expect(sends).toBe(1);
+      expect(result._tag).toBe("Left");
+      if (result._tag !== "Left") throw new Error("Expected publication failure");
+      expect(result.left).toBeInstanceOf(AgentSessionMessageAcceptedError);
+      expect(result.left).toMatchObject({
+        failure: { stage: "live_update", acceptedMessage: { messageId: "accepted-1" } },
+      });
+    },
+  );
   test("forwards repository controls after workspace validation", async () => {
     const harness = await createHarness();
     const repositoryInput = {

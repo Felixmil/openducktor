@@ -10,11 +10,14 @@ import type { AgentSessionTransientFault } from "@/types/agent-session-transient
 import { agentSessionRefKey } from "@openducktor/core";
 import { createSessionMessagesState } from "../support/messages";
 
-export const workspaceSessionIdentity = (record: WorkspaceSession): AgentSessionIdentity => ({
-  runtimeKind: record.runtimeKind,
-  externalSessionId: record.externalSessionId,
-  workingDirectory: record.executionTarget.workingDirectory,
-});
+export const workspaceSessionIdentity = (record: WorkspaceSession): AgentSessionIdentity | null =>
+  record.externalSessionId === null
+    ? null
+    : {
+        runtimeKind: record.runtimeKind,
+        externalSessionId: record.externalSessionId,
+        workingDirectory: record.executionTarget.workingDirectory,
+      };
 
 export const workspaceSessionTitle = (record: WorkspaceSession): string =>
   record.manualTitle ?? record.generatedTitle ?? "Untitled session";
@@ -34,6 +37,7 @@ export const reconcileWorkspaceSessionTargetFaults = (
   const sessions = listAgentSessions(collection);
   for (const record of records) {
     const identity = workspaceSessionIdentity(record);
+    if (!identity) continue;
     const wrongDirectory = sessions.find(
       (entry) =>
         entry.runtimeKind === record.runtimeKind &&
@@ -66,6 +70,7 @@ export const applyWorkspaceSessionRecords = (
   let collection = projected;
   for (const record of records) {
     const identity = workspaceSessionIdentity(record);
+    if (!identity) continue;
     const current = getAgentSession(projected, identity);
     const prior = getAgentSession(previous, identity);
     let session: AgentSessionState;

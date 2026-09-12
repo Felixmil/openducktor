@@ -1,4 +1,5 @@
 import { unexpectedRuntimeQueries } from "../../test-support/runtime-query-test-doubles";
+import { AgentSessionLiveRegistration } from "../../ports/agent-session-live-adapter-port";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -68,7 +69,10 @@ const createOpenCodeWorkspaceRuntimeStarter = (input: OpenCodeWorkspaceRuntimeSt
   const defaultLifecycle: RuntimeLiveSessionLifecyclePort = {
     registerRuntimeAdapter: () => Effect.void,
     releaseRuntime: () => Effect.succeed([]),
-    runAdapterMutation: (mutation) => Effect.map(mutation, (result) => result.value),
+    createRuntimeRegistration: (binding) =>
+      new AgentSessionLiveRegistration(binding, (mutation) =>
+        Effect.map(mutation, (result) => result.value),
+      ),
   };
   const toolDiscoveryInput: Parameters<typeof createToolDiscoveryAdapter>[0] = {
     systemCommands: systemCommands ?? createSystemCommands(),
@@ -94,11 +98,14 @@ const createOpenCodeWorkspaceRuntimeStarter = (input: OpenCodeWorkspaceRuntimeSt
             Effect.dieMessage("Unexpected releaseGeneratedImageBatch"),
           describeGeneratedImages: () => Effect.dieMessage("Unexpected describeGeneratedImages"),
           resolveGeneratedImageSource: () => Effect.dieMessage("Unexpected generated image read"),
-          binding: {
-            runtimeId: runtime.runtimeId,
-            runtimeKind: runtime.kind,
-            repoPath: runtime.repoPath,
-          },
+          binding: new AgentSessionLiveRegistration(
+            {
+              runtimeId: runtime.runtimeId,
+              runtimeKind: runtime.kind,
+              repoPath: runtime.repoPath,
+            },
+            (mutation) => Effect.map(mutation, ({ value }) => value),
+          ),
           listSnapshots: () => Effect.succeed([]),
           readSnapshot: (ref) => Effect.succeed({ type: "missing", ref }),
           loadContext: () => Effect.succeed(null),
@@ -302,11 +309,14 @@ const createLiveAdapter = (runtime: RuntimeInstanceSummary): AgentSessionLiveAda
   releaseGeneratedImageBatch: () => Effect.dieMessage("Unexpected releaseGeneratedImageBatch"),
   describeGeneratedImages: () => Effect.dieMessage("Unexpected describeGeneratedImages"),
   resolveGeneratedImageSource: () => Effect.dieMessage("Unexpected generated image read"),
-  binding: {
-    runtimeId: runtime.runtimeId,
-    runtimeKind: runtime.kind,
-    repoPath: runtime.repoPath,
-  },
+  binding: new AgentSessionLiveRegistration(
+    {
+      runtimeId: runtime.runtimeId,
+      runtimeKind: runtime.kind,
+      repoPath: runtime.repoPath,
+    },
+    (mutation) => Effect.map(mutation, ({ value }) => value),
+  ),
   listSnapshots: () => Effect.succeed([]),
   readSnapshot: (ref) => Effect.succeed({ type: "missing", ref }),
   loadContext: () => Effect.succeed(null),
@@ -465,7 +475,10 @@ describe("createOpenCodeWorkspaceRuntimeStarter", () => {
             releasedRuntimeIds.push(runtimeId);
             return [];
           }),
-        runAdapterMutation: (mutation) => Effect.map(mutation, (result) => result.value),
+        createRuntimeRegistration: (binding) =>
+          new AgentSessionLiveRegistration(binding, (mutation) =>
+            Effect.map(mutation, (result) => result.value),
+          ),
       };
       const starter = createOpenCodeWorkspaceRuntimeStarter({
         systemCommands: createSystemCommands(),
@@ -627,7 +640,10 @@ describe("createOpenCodeWorkspaceRuntimeStarter", () => {
             releasedRuntimeIds.push(runtimeId);
             return [];
           }),
-        runAdapterMutation: (mutation) => Effect.map(mutation, (result) => result.value),
+        createRuntimeRegistration: (binding) =>
+          new AgentSessionLiveRegistration(binding, (mutation) =>
+            Effect.map(mutation, (result) => result.value),
+          ),
       };
       const starter = createOpenCodeWorkspaceRuntimeStarter({
         systemCommands: createSystemCommands(),
@@ -694,7 +710,10 @@ describe("createOpenCodeWorkspaceRuntimeStarter", () => {
               }),
             ),
           releaseRuntime: () => Effect.succeed([]),
-          runAdapterMutation: (mutation) => Effect.map(mutation, (result) => result.value),
+          createRuntimeRegistration: (binding) =>
+            new AgentSessionLiveRegistration(binding, (mutation) =>
+              Effect.map(mutation, (result) => result.value),
+            ),
         },
         prepareLiveSessionAdapter: (runtime) =>
           Effect.succeed({
@@ -747,7 +766,10 @@ describe("createOpenCodeWorkspaceRuntimeStarter", () => {
             releasedRuntimeIds.push(runtimeId);
             return [];
           }),
-        runAdapterMutation: (mutation) => Effect.map(mutation, (result) => result.value),
+        createRuntimeRegistration: (binding) =>
+          new AgentSessionLiveRegistration(binding, (mutation) =>
+            Effect.map(mutation, (result) => result.value),
+          ),
       };
       const starter = createOpenCodeWorkspaceRuntimeStarter({
         systemCommands: createSystemCommands(),

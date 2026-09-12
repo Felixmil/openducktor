@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useSettingsModal } from "@/components/features/settings/settings-modal";
 import { useWorkspaceState } from "@/state/app-state-provider";
 import { useNotificationContext } from "@/state/notifications/notification-context";
+import { workspaceSessionListQueryOptions } from "@/state/queries/workspace-sessions";
 import { loadAgentSessionListFromQuery } from "@/state/queries/agent-sessions";
 import { unfilteredRepoTaskDataQueryOptions } from "@/state/queries/tasks";
 import {
@@ -39,6 +40,8 @@ export function NotificationNavigationRegistrar(): null {
           },
           loadTaskSessions: (repoPath, taskId) =>
             loadAgentSessionListFromQuery(queryClient, repoPath, taskId, { forceFresh: true }),
+          loadWorkspaceSessions: (workspaceId) =>
+            queryClient.fetchQuery(workspaceSessionListQueryOptions(workspaceId)),
           navigate,
           reportStale: staleTarget,
           openSettings: () =>
@@ -69,7 +72,7 @@ export function NotificationAttentionFocus(): ReactElement | null {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (location.pathname !== "/agents") return;
+    if (location.pathname !== "/agents" && location.pathname !== "/workspace-sessions") return;
     const search = new URLSearchParams(location.search);
     const kind = search.get(ATTENTION_KIND_QUERY_KEY);
     const id = search.get(ATTENTION_ID_QUERY_KEY);

@@ -14,6 +14,59 @@ export const workspaceSessionRefInputSchema = workspaceSessionListInputSchema.ex
 });
 export type WorkspaceSessionRefInput = z.infer<typeof workspaceSessionRefInputSchema>;
 
+export const workspaceSessionWorktreeNameSchema = z
+  .string()
+  .trim()
+  .transform((name) => name.replace(/[\s/\\]+/g, "-"))
+  .pipe(
+    z
+      .string()
+      .min(1)
+      .max(80)
+      .regex(
+        /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/,
+        "Use letters, numbers, hyphens, or underscores, starting with a letter or number.",
+      ),
+  );
+
+export const workspaceSessionBranchNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .refine(
+    (name) =>
+      name !== "HEAD" &&
+      name !== "@" &&
+      !name.startsWith("-") &&
+      !name.endsWith(".") &&
+      !name.includes("..") &&
+      !name.includes("@{") &&
+      !Array.from(name).some(
+        (character) =>
+          character.charCodeAt(0) <= 32 ||
+          character.charCodeAt(0) === 127 ||
+          "~^:?*[\\".includes(character),
+      ) &&
+      name
+        .split("/")
+        .every((part) => part.length > 0 && !part.startsWith(".") && !part.endsWith(".lock")),
+    "Enter a valid Git branch name.",
+  );
+
+export const workspaceSessionWorktreeInputSchema = z.discriminatedUnion("mode", [
+  z.strictObject({
+    mode: z.literal("from_branch"),
+    name: workspaceSessionWorktreeNameSchema,
+    branchName: workspaceSessionBranchNameSchema,
+  }),
+  z.strictObject({
+    mode: z.literal("from_name"),
+    name: workspaceSessionWorktreeNameSchema,
+    branchName: workspaceSessionBranchNameSchema.nullable(),
+  }),
+]);
+export type WorkspaceSessionWorktreeInput = z.infer<typeof workspaceSessionWorktreeInputSchema>;
+
 export const workspaceSessionCreateInputSchema = z
   .strictObject({
     workspaceId: workspaceIdSchema,
@@ -21,8 +74,13 @@ export const workspaceSessionCreateInputSchema = z
     selectedModel: agentSessionModelSelectionSchema.nullable(),
     customAgentRoleId: z.string().min(1).nullable(),
     location: z.enum(["local_repo_root", "local_worktree"]),
+    worktree: workspaceSessionWorktreeInputSchema.optional(),
     manualTitle: z.string().nullable(),
     confirmUncommittedChanges: z.boolean().default(false),
+  })
+  .refine((input) => (input.location === "local_worktree") === (input.worktree !== undefined), {
+    path: ["worktree"],
+    message: "Worktree options are required only for a new worktree.",
   })
   .refine(
     (input) =>
@@ -36,9 +94,18 @@ export type WorkspaceSessionCreateInput = z.infer<typeof workspaceSessionCreateI
 
 export const workspaceSessionCreateResultSchema = z.strictObject({
   session: workspaceSessionSchema,
-  runtimeSession: agentSessionControlSummarySchema,
 });
 export type WorkspaceSessionCreateResult = z.infer<typeof workspaceSessionCreateResultSchema>;
+
+export const workspaceSessionStartResultSchema = z.strictObject({
+  session: workspaceSessionSchema,
+  runtimeSession: agentSessionControlSummarySchema.nullable(),
+});
+export type WorkspaceSessionStartResult = z.infer<typeof workspaceSessionStartResultSchema>;
+
+export const workspaceSessionSetDraftModelInputSchema = workspaceSessionRefInputSchema.extend({
+  selectedModel: agentSessionModelSelectionSchema,
+});
 
 export const workspaceSessionRenameInputSchema = workspaceSessionRefInputSchema.extend({
   manualTitle: z
@@ -49,4 +116,6 @@ export const workspaceSessionRenameInputSchema = workspaceSessionRefInputSchema.
 });
 export const workspaceSessionArchiveInputSchema = workspaceSessionRefInputSchema.extend({
   confirmStop: z.boolean().default(false),
+  removeWorktree: z.boolean().default(false),
 });
+export type WorkspaceSessionArchiveInput = z.infer<typeof workspaceSessionArchiveInputSchema>;

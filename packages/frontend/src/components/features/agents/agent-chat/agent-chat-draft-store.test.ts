@@ -108,6 +108,20 @@ afterEach(() => {
 });
 
 describe("agent chat draft store", () => {
+  test("restores workspace chat text from storage after memory is reset", async () => {
+    const storage = createMemoryStorage();
+    const workspaceIdentity = { workspaceId: "workspace", workspaceSessionId: "saved-chat" };
+    const draft = buildDraft("Unsent workspace chat");
+    setAgentChatDraftStorageForTests(storage);
+    setAgentChatDraft(workspaceIdentity, null, draft);
+    await flushAgentChatDraft(workspaceIdentity);
+    expect(storage.getItem(toAgentChatDraftStorageKey(workspaceIdentity))).not.toBeNull();
+    resetAgentChatDraftStoreForTests();
+    setAgentChatDraftStorageForTests(storage);
+    expect(hydrateAgentChatDraft(workspaceIdentity, null)).toEqual(draft);
+    clearAgentChatDraft(workspaceIdentity);
+    expect(storage.getItem(toAgentChatDraftStorageKey(workspaceIdentity))).toBeNull();
+  });
   test("hydrates a session from storage once and then reads from memory", () => {
     const getItem = mock((_key: string) => {});
     const storage = createMemoryStorage({ getItem });

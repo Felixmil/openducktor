@@ -114,6 +114,17 @@ export const useSettingsModalDirtyDraftActions = ({
     [draftActions, runDirtyAction],
   );
 
+  const updateCustomAgentRoles = useCallback(
+    (
+      updater: (
+        current: SettingsSnapshot["customAgentRoles"],
+      ) => SettingsSnapshot["customAgentRoles"],
+    ): void => {
+      runDirtyAction("customAgentRoles", () => draftActions.updateCustomAgentRoles(updater));
+    },
+    [draftActions, runDirtyAction],
+  );
+
   const updateGlobalKanbanSettings = useCallback(
     (updater: (current: SettingsSnapshot["kanban"]) => SettingsSnapshot["kanban"]): void => {
       runDirtyAction("kanban", () => {
@@ -173,6 +184,7 @@ export const useSettingsModalDirtyDraftActions = ({
   );
 
   return {
+    updateCustomAgentRoles,
     updateSelectedRepoConfig,
     updateGlobalGitConfig,
     updateGlobalChatSettings,

@@ -20,6 +20,15 @@ export type CreateEventPublishingTaskServiceInput = {
   >;
 };
 
+export type EventPublishingTaskService = TaskService & {
+  agentSessionUpdateModelDeferredPublication: (
+    input: Parameters<TaskService["agentSessionUpdateModel"]>[0],
+  ) => Effect.Effect<
+    { updated: boolean; publish: Effect.Effect<void, TaskServiceError> },
+    TaskServiceError
+  >;
+};
+
 const changeForTask = (taskId: string): TaskChangeSet => ({
   taskIds: [taskId],
   removedTaskIds: [],
@@ -28,7 +37,30 @@ const changeForTask = (taskId: string): TaskChangeSet => ({
 export const createEventPublishingTaskService = ({
   taskService,
   taskSyncService,
-}: CreateEventPublishingTaskServiceInput): TaskService => {
+}: CreateEventPublishingTaskServiceInput): EventPublishingTaskService => {
+  const agentSessionUpdateModelDeferredPublication: EventPublishingTaskService["agentSessionUpdateModelDeferredPublication"] =
+    (input) =>
+      taskSyncService.runMutation(
+        input.repoPath,
+        Effect.gen(function* () {
+          const { result, statusChanges } = yield* collectTaskStatusChanges(
+            taskService.agentSessionUpdateModel(input),
+          );
+          if (result._tag === "Left") return yield* Effect.fail(result.left);
+          return {
+            updated: result.right,
+            publish: taskSyncService.runMutation(
+              input.repoPath,
+              taskSyncService.publishTasksUpdated(
+                input.repoPath,
+                changeForTask(input.taskId),
+                "agent-session-update-model",
+                statusChanges,
+              ),
+            ),
+          };
+        }),
+      );
   const publishAfterMutation = <A>(
     operation: string,
     repoPath: string,
@@ -154,12 +186,10 @@ export const createEventPublishingTaskService = ({
         taskService.agentSessionUpsert(input),
       ),
     agentSessionUpdateModel: (input) =>
-      publishAfterMutation(
-        "agent-session-update-model",
-        input.repoPath,
-        changeForTask(input.taskId),
-        taskService.agentSessionUpdateModel(input),
+      agentSessionUpdateModelDeferredPublication(input).pipe(
+        Effect.flatMap(({ updated, publish }) => publish.pipe(Effect.as(updated))),
       ),
+    agentSessionUpdateModelDeferredPublication,
     agentSessionDelete: (input) => taskService.agentSessionDelete(input),
     getApprovalContext: (input) => taskService.getApprovalContext(input),
     detectPullRequest: (input) =>

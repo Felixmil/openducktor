@@ -96,6 +96,35 @@ const buildStructuredDraft = (): AgentChatComposerDraft => ({
 });
 
 describe("agent chat draft storage", () => {
+  test("round-trips a workspace chat draft with no runtime identity and isolates it from Agent Studio", () => {
+    const storage = createMemoryStorage();
+    const workspaceIdentity = { workspaceId: identity.workspaceId, workspaceSessionId: "chat/one" };
+    const draft = buildStructuredDraft();
+    const now = new Date();
+    const result = writeAgentChatDraftToStorage({
+      storage,
+      identity: workspaceIdentity,
+      taskId: null,
+      draft,
+      updatedAt: now.toISOString(),
+    });
+    expect(result.status).toBe("serialized");
+    expect(toAgentChatDraftStorageKey(workspaceIdentity)).not.toBe(
+      toAgentChatDraftStorageKey(identity),
+    );
+    const raw = storage.getItem(toAgentChatDraftStorageKey(workspaceIdentity))!;
+    expect(JSON.parse(raw)).toMatchObject({ workspaceSessionId: "chat/one", taskId: null });
+    expect(JSON.parse(raw)).not.toHaveProperty("externalSessionId");
+    expect(
+      readAgentChatDraftFromStorage({ storage, identity: workspaceIdentity, now }),
+    ).toMatchObject({ status: "restored", value: { draft, taskId: null } });
+    cleanupExpiredAgentChatDraftStorage({ storage, now });
+    expect(storage.getItem(toAgentChatDraftStorageKey(workspaceIdentity))).toBe(raw);
+    const other = { ...workspaceIdentity, workspaceSessionId: "chat/two" };
+    storage.setItem(toAgentChatDraftStorageKey(other), raw);
+    expect(readAgentChatDraftFromStorage({ storage, identity: other, now }).status).toBe("invalid");
+    expect(storage.getItem(toAgentChatDraftStorageKey(workspaceIdentity))).toBe(raw);
+  });
   test("builds storage keys from workspace and canonical session identity", () => {
     expect(toAgentChatDraftStorageKey(identity)).toBe(
       "openducktor:agent-chat:draft:v2:workspace%3Aone:session%2Fone|opencode|%2Fworkspace%2Fone",

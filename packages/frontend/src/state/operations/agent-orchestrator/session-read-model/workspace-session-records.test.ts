@@ -31,7 +31,7 @@ const record = (): WorkspaceSession => ({
   archivedAt: null,
 });
 const snapshot = (entry: WorkspaceSession): AgentSessionLiveSnapshot => ({
-  ref: { ...workspaceSessionIdentity(entry), repoPath: "/repo" },
+  ref: { ...workspaceSessionIdentity(entry)!, repoPath: "/repo" },
   repositoryScope: { kind: "repository" },
   activity: "running",
   title: "Runtime title",
@@ -42,6 +42,15 @@ const snapshot = (entry: WorkspaceSession): AgentSessionLiveSnapshot => ({
 });
 
 describe("Workspace Session records in the shared read model", () => {
+  test("does not project drafts as runtime sessions or target faults", () => {
+    const draft = { ...record(), externalSessionId: null };
+    const collection = emptyAgentSessionCollection();
+    expect(workspaceSessionIdentity(draft)).toBeNull();
+    expect(applyWorkspaceSessionRecords(collection, [draft])).toBe(collection);
+    expect(
+      reconcileWorkspaceSessionTargetFaults(new Map(), collection, [draft], "/repo").size,
+    ).toBe(0);
+  });
   test("hydrates idle sessions without runtime evidence and uses durable titles", () => {
     const entry = record();
     const collection = applyWorkspaceSessionRecords(emptyAgentSessionCollection(), [entry]);
@@ -127,7 +136,8 @@ describe("Workspace Session records in the shared read model", () => {
     expect(selected?.status).toBe("idle");
     const faults = reconcileWorkspaceSessionTargetFaults(new Map(), current, [entry], "/repo");
     expect(
-      faults.get(workspaceSessionTargetFaultKey("/repo", workspaceSessionIdentity(entry)))?.message,
+      faults.get(workspaceSessionTargetFaultKey("/repo", workspaceSessionIdentity(entry)!))
+        ?.message,
     ).toContain("does not match stored target '/repo'");
     expect(entry.executionTarget.workingDirectory).toBe("/repo");
   });

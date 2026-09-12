@@ -20,6 +20,14 @@ const session = () => ({
 });
 
 describe("Workspace Session contracts", () => {
+  test("represents a persisted draft with an explicit null runtime identity", () => {
+    expect(
+      workspaceSessionSchema.parse({ ...session(), externalSessionId: null }).externalSessionId,
+    ).toBeNull();
+    expect(workspaceSessionSchema.safeParse({ ...session(), externalSessionId: "" }).success).toBe(
+      false,
+    );
+  });
   test("accepts an untitled session without a Role or selected model", () => {
     expect(workspaceSessionSchema.parse(session())).toEqual(session());
   });
@@ -55,6 +63,8 @@ describe("Workspace Session contracts", () => {
         workspaceSessionExecutionTargetSchema.safeParse({
           kind: "local_worktree",
           workingDirectory,
+          branchName: "feature/chat",
+          worktreeState: "present",
         }).success,
       ).toBe(true);
     }
@@ -64,6 +74,29 @@ describe("Workspace Session contracts", () => {
       { kind: "ssh", workingDirectory: "/repo" },
     ])
       expect(workspaceSessionExecutionTargetSchema.safeParse(target).success).toBe(false);
+  });
+
+  test("requires explicit branch and removal metadata for worktree records", () => {
+    const target = {
+      kind: "local_worktree",
+      workingDirectory: "/repo/chat",
+      branchName: "feature/chat",
+      worktreeState: "removed",
+    };
+    expect(workspaceSessionExecutionTargetSchema.parse(target)).toEqual(target);
+    expect(
+      workspaceSessionExecutionTargetSchema.safeParse({
+        kind: "local_worktree",
+        workingDirectory: "/repo/chat",
+      }).success,
+    ).toBe(false);
+    expect(
+      workspaceSessionExecutionTargetSchema.safeParse({ ...target, branchName: "" }).success,
+    ).toBe(false);
+    expect(
+      workspaceSessionExecutionTargetSchema.safeParse({ ...target, worktreeState: "unknown" })
+        .success,
+    ).toBe(false);
   });
 
   test("validates title lengths and integer timestamps without cross-field ordering rules", () => {

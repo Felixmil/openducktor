@@ -1,5 +1,6 @@
 import type { HostInvokeFailure } from "@openducktor/contracts";
 import { RuntimeQueryError } from "../../ports/runtime-query-error";
+import { AgentSessionMessageAcceptedError } from "../../ports/agent-session-send-error";
 import { WorkspaceTextFileWriteError } from "../../application/filesystem/workspace-text-file-service";
 import {
   TerminalServiceError,
@@ -12,6 +13,9 @@ import { HostValidationError } from "../../effect/host-errors";
 export const hostInvokeFailureFromError = (cause: unknown): HostInvokeFailure | undefined => {
   if (cause instanceof RuntimeQueryError) {
     return { kind: "runtime_query", runtimeQueryFailure: cause.failure };
+  }
+  if (cause instanceof AgentSessionMessageAcceptedError) {
+    return cause.failure;
   }
   if (
     cause instanceof HostValidationError &&

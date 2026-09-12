@@ -1,3 +1,4 @@
+import { AgentSessionLiveRegistration } from "../../ports/agent-session-live-adapter-port";
 import type { CodexAppServerStreamEvent } from "../../ports/codex-app-server-port";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
@@ -64,7 +65,10 @@ const createCodexWorkspaceRuntimeStarter = (input: CodexWorkspaceRuntimeStarterT
   const defaultLiveSessionLifecycle = {
     registerRuntimeAdapter: () => Effect.void,
     releaseRuntime: () => Effect.succeed([]),
-    runAdapterMutation: (mutation) => mutation.pipe(Effect.map((result) => result.value)),
+    createRuntimeRegistration: (binding) =>
+      new AgentSessionLiveRegistration(binding, (mutation) =>
+        mutation.pipe(Effect.map((result) => result.value)),
+      ),
   } satisfies RuntimeLiveSessionLifecyclePort;
   const toolDiscoveryInput: Parameters<typeof createToolDiscoveryAdapter>[0] = {
     systemCommands: systemCommands ?? createSystemCommands(),
@@ -771,7 +775,10 @@ describe("createCodexWorkspaceRuntimeStarter", () => {
             order.push("release");
             return [];
           }),
-        runAdapterMutation: (mutation) => mutation.pipe(Effect.map((result) => result.value)),
+        createRuntimeRegistration: (binding) =>
+          new AgentSessionLiveRegistration(binding, (mutation) =>
+            mutation.pipe(Effect.map((result) => result.value)),
+          ),
       } satisfies RuntimeLiveSessionLifecyclePort;
       const starter = createCodexWorkspaceRuntimeStarter({
         systemCommands: createSystemCommands(),
@@ -901,7 +908,10 @@ describe("createCodexWorkspaceRuntimeStarter", () => {
             registeredRuntimeIds.delete(releasedRuntimeId);
             return [];
           }),
-        runAdapterMutation: (mutation) => mutation.pipe(Effect.map((result) => result.value)),
+        createRuntimeRegistration: (binding) =>
+          new AgentSessionLiveRegistration(binding, (mutation) =>
+            mutation.pipe(Effect.map((result) => result.value)),
+          ),
       } satisfies RuntimeLiveSessionLifecyclePort;
       const starter = createCodexWorkspaceRuntimeStarter({
         systemCommands: createSystemCommands(),

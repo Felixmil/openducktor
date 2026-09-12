@@ -205,6 +205,7 @@ export const workspaceRecordsInEffectiveOrder = (
   });
 export const toSettingsSnapshot = (config: LoadedGlobalConfig): SettingsSnapshot =>
   settingsSnapshotSchema.parse({
+    customAgentRoles: config.customAgentRoles,
     theme: config.theme,
     system: config.system,
     git: config.git,
