@@ -17,6 +17,7 @@
     "build:renderer": "vite build --outDir dist/renderer --emptyOutDir",
     "builder": "electron-builder",
     "dev": "bun run scripts/dev.ts",
+    "dev:cdp": "bun run scripts/dev.ts --cdp",
     "dev:electron": "bun run scripts/dev.ts",
     "dev:renderer": "vite --host 127.0.0.1 --strictPort",
     "package": "bun run scripts/package-build.ts",

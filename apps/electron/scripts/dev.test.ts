@@ -9,8 +9,10 @@ import { runElectronEffect } from "../src/effect/electron-boundary";
 import { ElectronOperationError } from "../src/effect/electron-errors";
 import {
   type ElectronDevProcessHandlers,
+  electronDebugEndpointLogLine,
   electronDevServerLogLines,
   electronGracefulShutdownSignal,
+  electronLaunchArgs,
   electronRuntimeEnv,
   macosDevAppRegistrationCommand,
   macosDevSignOptions,
@@ -21,6 +23,7 @@ import {
   resolveRendererDevPort,
   resolveRequiredMacosAppBundlePath,
   runElectronDevLifecycleEffect,
+  shouldEnableRemoteDebugging,
   shouldRestartElectronForChange,
   stopElectronEffect,
 } from "./dev";
@@ -96,6 +99,29 @@ describe("electron dev script", () => {
     expect(electronDevServerLogLines("electron-0123456789ab", rendererDevUrl)).toEqual([
       "[electron:dev] Development instance: electron-0123456789ab",
       "[electron:dev] Renderer URL: http://127.0.0.1:49152",
+    ]);
+  });
+
+  test("reports the CDP endpoint when remote debugging is enabled", () => {
+    expect(electronDebugEndpointLogLine(53_421)).toBe(
+      "[electron:dev] CDP endpoint: http://127.0.0.1:53421",
+    );
+  });
+
+  test("enables remote debugging only for the explicit CDP flag", () => {
+    expect(shouldEnableRemoteDebugging(["--cdp"])).toBe(true);
+    expect(shouldEnableRemoteDebugging(["bun", "scripts/dev.ts"])).toBe(false);
+  });
+
+  test("builds Electron launch arguments with a dynamic CDP port", () => {
+    expect(electronLaunchArgs("/repo/node_modules/electron/dist/Electron", false)).toEqual([
+      "/repo/node_modules/electron/dist/Electron",
+      "dist/main.js",
+    ]);
+    expect(electronLaunchArgs("/repo/node_modules/electron/dist/Electron", true)).toEqual([
+      "/repo/node_modules/electron/dist/Electron",
+      "--remote-debugging-port=0",
+      "dist/main.js",
     ]);
   });
 
@@ -364,7 +390,11 @@ describe("electron dev script", () => {
   test("runs the dev watcher and Electron process lifecycle as an Effect", async () => {
     const watchedRoots: string[][] = [];
     const watchedEvents: string[] = [];
-    const startCalls: Array<{ executablePath: string; rendererDevUrl: string }> = [];
+    const startCalls: Array<{
+      executablePath: string;
+      remoteDebugging: boolean;
+      rendererDevUrl: string;
+    }> = [];
     const fakeProcessHandlers = createFakeProcessHandlers();
     let buildCalls = 0;
     let closeCalls = 0;
@@ -399,8 +429,12 @@ describe("electron dev script", () => {
         electronExecutablePath: "/repo/node_modules/electron/dist/Electron",
         processHandlers: fakeProcessHandlers.processHandlers,
         renderer,
-        startElectronProcess: (rendererDevUrl, electronExecutablePath) => {
-          startCalls.push({ executablePath: electronExecutablePath, rendererDevUrl });
+        startElectronProcess: (rendererDevUrl, electronExecutablePath, remoteDebugging) => {
+          startCalls.push({
+            executablePath: electronExecutablePath,
+            remoteDebugging,
+            rendererDevUrl,
+          });
           return {
             exited: Promise.resolve(0),
             kill() {},
@@ -414,6 +448,7 @@ describe("electron dev script", () => {
     expect(startCalls).toEqual([
       {
         executablePath: "/repo/node_modules/electron/dist/Electron",
+        remoteDebugging: false,
         rendererDevUrl: "http://127.0.0.1:1430",
       },
     ]);
