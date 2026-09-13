@@ -626,6 +626,7 @@ export const runElectronDevLifecycleEffect = ({
     let restarting = false;
     let restartQueued = false;
     let restartTimer: ReturnType<typeof setTimeout> | null = null;
+    let launchGeneration = 0;
     const registeredProcessHandlers: Array<{
       event: ElectronDevProcessEvent;
       listener: () => void;
@@ -748,15 +749,17 @@ export const runElectronDevLifecycleEffect = ({
         if (shutdownStarted || settled) {
           return;
         }
+        const generation = launchGeneration + 1;
+        launchGeneration = generation;
         yield* buildBundles();
-        if (shutdownStarted || settled) {
+        if (generation !== launchGeneration || shutdownStarted || settled) {
           return;
         }
         abortDevToolsPortWait();
         const activePortPath = devToolsActivePortPath;
         if (activePortPath !== null) {
           yield* prepareDevToolsPortFile(activePortPath);
-          if (shutdownStarted || settled) {
+          if (generation !== launchGeneration || shutdownStarted || settled) {
             return;
           }
           const controller = new AbortController();
@@ -771,9 +774,10 @@ export const runElectronDevLifecycleEffect = ({
         );
         electron = nextElectron;
         void nextElectron.exited.then((exitCode) => {
-          if (electron === nextElectron) {
-            electron = null;
+          if (electron !== nextElectron) {
+            return;
           }
+          electron = null;
           pendingElectronExitCode = exitCode;
           const pendingWait = devToolsPortWait;
           if (pendingWait !== null) {
@@ -798,6 +802,9 @@ export const runElectronDevLifecycleEffect = ({
               cause,
             }),
         });
+        if (generation !== launchGeneration || shutdownStarted || settled) {
+          return;
+        }
         if (cdpPort === null) {
           const exitCodeBeforePublish = portWait.exitCodeBeforePublish;
           if (exitCodeBeforePublish !== null && !shutdownStarted && !settled) {
@@ -816,7 +823,12 @@ export const runElectronDevLifecycleEffect = ({
         yield* Effect.sync(() => {
           console.log(electronDebugEndpointLogLine(cdpPort));
         });
-        if (!shutdownStarted && electron === null && pendingElectronExitCode !== null) {
+        if (
+          generation === launchGeneration &&
+          !shutdownStarted &&
+          electron === null &&
+          pendingElectronExitCode !== null
+        ) {
           void runShutdown(pendingElectronExitCode);
         }
       });

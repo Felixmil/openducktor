@@ -712,6 +712,92 @@ describe("electron dev script", () => {
     }
   });
 
+  test("does not start a stale launch when a restart interrupts CDP port file preparation", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "odt-electron-cdp-"));
+    const fakeProcessHandlers = createFakeProcessHandlers();
+    let resolveInitialPreparation: () => void = () => {};
+    const initialPreparation = new Promise<void>((resolve) => {
+      resolveInitialPreparation = resolve;
+    });
+    let preparationCalls = 0;
+    let resolveProcessExit: (exitCode: number) => void = () => {};
+    const processExited = new Promise<number>((resolve) => {
+      resolveProcessExit = resolve;
+    });
+    const remoteDebuggingValues: boolean[] = [];
+
+    try {
+      const activePortPath = path.join(directory, "DevToolsActivePort");
+      const changeListeners: Array<(filePath: string) => void> = [];
+      const watcher: ElectronDevRendererWatcher = {
+        add() {
+          return watcher;
+        },
+        on(event, listener) {
+          if (event === "change") {
+            changeListeners.push(listener);
+          }
+          return watcher;
+        },
+      };
+
+      const lifecycle = runElectronEffect(
+        runElectronDevLifecycleEffect({
+          buildBundles: () => Effect.void,
+          devToolsActivePortPath: activePortPath,
+          electronExecutablePath: "/repo/node_modules/electron/dist/Electron",
+          prepareDevToolsPortFile: () => {
+            preparationCalls += 1;
+            if (preparationCalls === 1) {
+              return Effect.promise(() => initialPreparation);
+            }
+            return Effect.void;
+          },
+          processHandlers: fakeProcessHandlers.processHandlers,
+          renderer: createFakeRenderer({ watcher }),
+          startElectronProcess: (_rendererDevUrl, _executablePath, remoteDebugging) => {
+            remoteDebuggingValues.push(remoteDebugging);
+            void writeFile(activePortPath, "45678\n/devtools/browser/example\n");
+            return {
+              exited: processExited,
+              kill() {
+                resolveProcessExit(0);
+              },
+            };
+          },
+        }),
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const changeListener = changeListeners[0];
+      if (!changeListener) {
+        throw new Error("Expected the lifecycle to register a watcher change listener.");
+      }
+      changeListener(path.join(ELECTRON_RESTART_WATCH_ROOTS[0], "main.ts"));
+
+      for (let attempt = 0; attempt < 100 && remoteDebuggingValues.length < 1; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(remoteDebuggingValues.length).toBe(1);
+
+      resolveInitialPreparation();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(remoteDebuggingValues).toEqual([true]);
+
+      const shutdownHandler = fakeProcessHandlers.registered.find(
+        ({ event }) => event === "SIGTERM",
+      );
+      if (!shutdownHandler) {
+        throw new Error("Expected the Electron dev lifecycle to register SIGTERM.");
+      }
+      shutdownHandler.listener();
+
+      expect(await lifecycle).toBe(143);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
   test("settles when a replacement Electron exits right after publishing the CDP port", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "odt-electron-cdp-"));
     const endpointLine = electronDebugEndpointLogLine(45_678);
