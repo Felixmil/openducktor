@@ -8,7 +8,7 @@ import { resolveElectronProfilePath } from "../src/main/electron-app-identity";
 
 const DEVTOOLS_ACTIVE_PORT_FILE_NAME = "DevToolsActivePort";
 const ELECTRON_DEBUG_PORT_TIMEOUT_MS = 30_000;
-const DEVTOOLS_ACTIVE_PORT_RECOVERY_STEP =
+export const DEVTOOLS_ACTIVE_PORT_RECOVERY_STEP =
   "Check the Electron startup output, then rerun `bun run electron:dev:cdp`.";
 
 export const resolveDevToolsActivePortPath = (developmentInstanceId: string): string =>

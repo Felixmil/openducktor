@@ -29,6 +29,7 @@ import {
   resolveSqliteTaskStoreMigrationCopyPlan,
 } from "./build";
 import {
+  DEVTOOLS_ACTIVE_PORT_RECOVERY_STEP,
   prepareDevToolsActivePortFileEffect,
   resolveDevToolsActivePortPath,
   waitForDevToolsActivePort,
@@ -605,7 +606,7 @@ type ElectronDevLifecycleOptions = {
 type DevToolsPortWait = {
   readonly controller: AbortController;
   readonly promise: Promise<number | null>;
-  exitedBeforePublish: boolean;
+  exitCodeBeforePublish: number | null;
 };
 
 export const runElectronDevLifecycleEffect = ({
@@ -675,6 +676,19 @@ export const runElectronDevLifecycleEffect = ({
     const completeFailure = (cause: unknown): void => {
       settle(Effect.fail(toElectronOperationError(cause, "electron.dev.lifecycle")), {
         keepExitHandler: true,
+      });
+    };
+
+    const failLifecycleAfterStoppingElectron = (cause: unknown): void => {
+      const failure = toElectronOperationError(cause, "electron.dev.lifecycle");
+      void Effect.runPromiseExit(stopElectronEffect(electron)).then((stopExit) => {
+        if (Exit.isFailure(stopExit)) {
+          console.error(
+            "[electron:dev] Electron shutdown after lifecycle failure failed.",
+            causeToElectronBoundaryError(stopExit.cause),
+          );
+        }
+        settle(Effect.fail(failure), { keepExitHandler: true });
       });
     };
 
@@ -748,7 +762,7 @@ export const runElectronDevLifecycleEffect = ({
           const controller = new AbortController();
           devToolsPortWait = {
             controller,
-            exitedBeforePublish: false,
+            exitCodeBeforePublish: null,
             promise: waitForDevToolsActivePort(activePortPath, controller.signal),
           };
         }
@@ -763,7 +777,7 @@ export const runElectronDevLifecycleEffect = ({
           pendingElectronExitCode = exitCode;
           const pendingWait = devToolsPortWait;
           if (pendingWait !== null) {
-            pendingWait.exitedBeforePublish = true;
+            pendingWait.exitCodeBeforePublish = exitCode;
             abortDevToolsPortWait();
           }
           if (shutdownStarted || restarting || pendingWait !== null) {
@@ -785,10 +799,13 @@ export const runElectronDevLifecycleEffect = ({
             }),
         });
         if (cdpPort === null) {
-          if (portWait.exitedBeforePublish && !shutdownStarted && !settled) {
+          const exitCodeBeforePublish = portWait.exitCodeBeforePublish;
+          if (exitCodeBeforePublish !== null && !shutdownStarted && !settled) {
             return yield* Effect.fail(
               toElectronOperationError(
-                new Error("Electron exited before it published the CDP port."),
+                new Error(
+                  `Electron exited with code ${exitCodeBeforePublish} before it published the CDP port. ${DEVTOOLS_ACTIVE_PORT_RECOVERY_STEP}`,
+                ),
                 "electron.dev.wait-for-cdp-port",
               ),
             );
@@ -947,7 +964,7 @@ export const runElectronDevLifecycleEffect = ({
         yield* registerProcessHandlersEffect();
         yield* launchElectronEffect();
       }),
-      completeFailure,
+      failLifecycleAfterStoppingElectron,
     );
 
     return interruptCleanupEffect();

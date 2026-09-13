@@ -551,7 +551,9 @@ describe("electron dev script", () => {
             }),
           }),
         ),
-      ).rejects.toThrow("Electron exited before it published the CDP port.");
+      ).rejects.toThrow(
+        "Electron exited with code 0 before it published the CDP port. Check the Electron startup output, then rerun `bun run electron:dev:cdp`.",
+      );
 
       await writeFile(activePortPath, "45678\n/devtools/browser/example\n");
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -848,6 +850,47 @@ describe("electron dev script", () => {
 
       expect(exitCode).toBe(143);
       expect(startCalls).toBe(0);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("stops Electron when the CDP port watcher fails", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "odt-electron-cdp-"));
+    const fakeProcessHandlers = createFakeProcessHandlers();
+    const killSignals: Array<NodeJS.Signals | number | undefined> = [];
+    let resolveExit: (exitCode: number) => void = () => {};
+    const exited = new Promise<number>((resolve) => {
+      resolveExit = resolve;
+    });
+    let startCalls = 0;
+
+    try {
+      await expect(
+        runElectronEffect(
+          runElectronDevLifecycleEffect({
+            buildBundles: () => Effect.void,
+            devToolsActivePortPath: path.join(directory, "missing", "DevToolsActivePort"),
+            electronExecutablePath: "/repo/node_modules/electron/dist/Electron",
+            prepareDevToolsPortFile: () => Effect.void,
+            processHandlers: fakeProcessHandlers.processHandlers,
+            renderer: createFakeRenderer(),
+            startElectronProcess: () => {
+              startCalls += 1;
+              return {
+                exited,
+                kill(signal?: NodeJS.Signals | number) {
+                  killSignals.push(signal);
+                  resolveExit(0);
+                },
+              };
+            },
+          }),
+        ),
+      ).rejects.toThrow("no such file or directory");
+
+      expect(startCalls).toBe(1);
+      expect(killSignals).toEqual([electronGracefulShutdownSignal(process.platform)]);
     } finally {
       await rm(directory, { force: true, recursive: true });
     }

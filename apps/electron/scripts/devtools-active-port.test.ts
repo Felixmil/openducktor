@@ -11,21 +11,21 @@ const createActivePortDirectory = (): Promise<string> =>
   mkdtemp(path.join(tmpdir(), "odt-electron-devtools-"));
 
 type CapturedPortTimeout = {
+  readonly promise: Promise<number | null>;
   readonly fire: () => void;
-  readonly restore: () => void;
 };
 
-const capturePortTimeout = (): CapturedPortTimeout => {
+const startPortWaitWithCapturedTimeout = (
+  activePortPath: string,
+  signal: AbortSignal,
+): CapturedPortTimeout => {
   const originalSetTimeout = globalThis.setTimeout;
-  const capturedHandlers: Array<() => void> = [];
+  let capturedHandler: (() => void) | null = null;
   const captureSetTimeout = (
     handler: () => void,
     delay?: number,
   ): ReturnType<typeof setTimeout> => {
-    if ((delay ?? 0) >= 1_000) {
-      capturedHandlers.push(handler);
-      return originalSetTimeout(() => {}, 0);
-    }
+    capturedHandler = handler;
     return originalSetTimeout(handler, delay);
   };
   Object.defineProperty(globalThis, "setTimeout", {
@@ -33,21 +33,20 @@ const capturePortTimeout = (): CapturedPortTimeout => {
     value: captureSetTimeout,
     writable: true,
   });
+  const promise = waitForDevToolsActivePort(activePortPath, signal);
+  Object.defineProperty(globalThis, "setTimeout", {
+    configurable: true,
+    value: originalSetTimeout,
+    writable: true,
+  });
   return {
     fire: () => {
-      const handler = capturedHandlers.shift();
-      if (!handler) {
+      if (capturedHandler === null) {
         throw new Error("The CDP port wait did not schedule a timeout.");
       }
-      handler();
+      capturedHandler();
     },
-    restore: () => {
-      Object.defineProperty(globalThis, "setTimeout", {
-        configurable: true,
-        value: originalSetTimeout,
-        writable: true,
-      });
-    },
+    promise,
   };
 };
 
@@ -120,38 +119,34 @@ describe("Electron DevTools active port file", () => {
 
   test("fails with a recovery step when Electron never writes the active port file", async () => {
     const directory = await createActivePortDirectory();
-    const capturedTimeout = capturePortTimeout();
     try {
       const activePortPath = path.join(directory, "DevToolsActivePort");
       const controller = new AbortController();
-      const portPromise = waitForDevToolsActivePort(activePortPath, controller.signal);
-      capturedTimeout.fire();
-      await expect(portPromise).rejects.toThrow(
+      const { fire, promise } = startPortWaitWithCapturedTimeout(activePortPath, controller.signal);
+      fire();
+      await expect(promise).rejects.toThrow(
         "Electron did not write DevToolsActivePort within 30000ms. Check the Electron startup output, then rerun `bun run electron:dev:cdp`.",
       );
     } finally {
-      capturedTimeout.restore();
       await rm(directory, { force: true, recursive: true });
     }
   });
 
   test("fails with the last read failure and a recovery step when the active port file stays incomplete", async () => {
     const directory = await createActivePortDirectory();
-    const capturedTimeout = capturePortTimeout();
     try {
       const activePortPath = path.join(directory, "DevToolsActivePort");
       const controller = new AbortController();
       await writeFile(activePortPath, "not-a-port");
-      const portPromise = waitForDevToolsActivePort(activePortPath, controller.signal);
+      const { fire, promise } = startPortWaitWithCapturedTimeout(activePortPath, controller.signal);
       await sleep(20);
       await writeFile(activePortPath, "still-not-a-port");
       await sleep(50);
-      capturedTimeout.fire();
-      await expect(portPromise).rejects.toThrow(
+      fire();
+      await expect(promise).rejects.toThrow(
         "Electron did not write a complete DevToolsActivePort file within 30000ms. Last read failure: Electron wrote an incomplete DevToolsActivePort file. Check the Electron startup output, then rerun `bun run electron:dev:cdp`.",
       );
     } finally {
-      capturedTimeout.restore();
       await rm(directory, { force: true, recursive: true });
     }
   });
