@@ -207,7 +207,7 @@ describe("Electron DevTools active port file", () => {
     }
   });
 
-  test("fails when the active port file cannot be watched", async () => {
+  test("surfaces a symlink loop at the active port path", async () => {
     const directory = await createActivePortDirectory();
     try {
       const activePortPath = path.join(directory, "DevToolsActivePort");
@@ -216,10 +216,10 @@ describe("Electron DevTools active port file", () => {
       await sleep(20);
       symlinkSync("DevToolsActivePort-target", activePortPath);
       symlinkSync("DevToolsActivePort", path.join(directory, "DevToolsActivePort-target"));
-      await expect(portPromise).rejects.toThrow(`Failed to watch ${activePortPath}`);
-      await expect(portPromise).rejects.toThrow(
-        "Check the profile directory and its permissions, then rerun `bun run electron:dev:cdp`.",
-      );
+      const failingStage = process.platform === "win32" ? "Failed to read" : "Failed to watch";
+      await expect(portPromise).rejects.toThrow(`${failingStage} ${activePortPath}`);
+      await expect(portPromise).rejects.toThrow("ELOOP");
+      await expect(portPromise).rejects.toThrow("then rerun `bun run electron:dev:cdp`.");
     } finally {
       await rm(directory, { force: true, recursive: true });
     }
