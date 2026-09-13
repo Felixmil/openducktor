@@ -889,7 +889,7 @@ describe("electron dev script", () => {
 
       await expect(lifecycleFailure).rejects.toThrow("Failed to watch");
       await expect(lifecycleFailure).rejects.toThrow(
-        "Check the Electron startup output, then rerun `bun run electron:dev:cdp`.",
+        "Check the profile directory and its permissions, then rerun `bun run electron:dev:cdp`.",
       );
 
       expect(startCalls).toBe(1);

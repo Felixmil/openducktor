@@ -3,13 +3,21 @@ import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { resolveOpenDucktorBaseDir } from "@openducktor/host";
 import { Effect } from "effect";
+import { z } from "zod";
 import { ElectronOperationError, errorMessage } from "../src/effect/electron-errors";
 import { resolveElectronProfilePath } from "../src/main/electron-app-identity";
 
 const DEVTOOLS_ACTIVE_PORT_FILE_NAME = "DevToolsActivePort";
 const ELECTRON_DEBUG_PORT_TIMEOUT_MS = 30_000;
-export const DEVTOOLS_ACTIVE_PORT_RECOVERY_STEP =
-  "Check the Electron startup output, then rerun `bun run electron:dev:cdp`.";
+const nodeErrorSchema = z.object({ code: z.string() });
+const rerunCommand = (action: string): string =>
+  `${action}, then rerun \`bun run electron:dev:cdp\`.`;
+export const DEVTOOLS_ACTIVE_PORT_RECOVERY_STEP = rerunCommand("Check the Electron startup output");
+
+const nodeErrorCode = (cause: unknown): string | null => {
+  const parsedCause = nodeErrorSchema.safeParse(cause);
+  return parsedCause.success ? parsedCause.data.code : null;
+};
 
 export const resolveDevToolsActivePortPath = (developmentInstanceId: string): string =>
   path.join(
@@ -23,7 +31,7 @@ export const resolveDevToolsActivePortPath = (developmentInstanceId: string): st
 
 type DevToolsActivePortReadResult =
   | { readonly ok: true; readonly port: number }
-  | { readonly ok: false; readonly failure: string };
+  | { readonly ok: false; readonly failure: string; readonly keepWaiting: boolean };
 
 const readDevToolsActivePort = async (
   activePortPath: string,
@@ -32,7 +40,11 @@ const readDevToolsActivePort = async (
   try {
     contents = await readFile(activePortPath, "utf8");
   } catch (cause) {
-    return { ok: false, failure: errorMessage(cause) };
+    return {
+      ok: false,
+      failure: errorMessage(cause),
+      keepWaiting: nodeErrorCode(cause) === "ENOENT",
+    };
   }
   const [portLine = "", browserPathLine = ""] = contents.split("\n");
   const port = Number.parseInt(portLine, 10);
@@ -40,6 +52,7 @@ const readDevToolsActivePort = async (
     return {
       ok: false,
       failure: `Electron wrote an incomplete ${DEVTOOLS_ACTIVE_PORT_FILE_NAME} file.`,
+      keepWaiting: true,
     };
   }
   return { ok: true, port };
@@ -77,7 +90,7 @@ export const waitForDevToolsActivePort = (
       settle();
       reject(
         new Error(
-          `Failed to watch ${resource} for ${DEVTOOLS_ACTIVE_PORT_FILE_NAME}: ${errorMessage(cause)} ${DEVTOOLS_ACTIVE_PORT_RECOVERY_STEP}`,
+          `Failed to watch ${resource} for ${DEVTOOLS_ACTIVE_PORT_FILE_NAME}: ${errorMessage(cause)}. ${rerunCommand("Check the profile directory and its permissions")}`,
         ),
       );
     };
@@ -88,22 +101,31 @@ export const waitForDevToolsActivePort = (
         }
         if (!readResult.ok) {
           lastFailure = readResult.failure;
+          if (!readResult.keepWaiting) {
+            settle();
+            reject(
+              new Error(
+                `Failed to read ${activePortPath}: ${readResult.failure}. ${rerunCommand("Check access to the file")}`,
+              ),
+            );
+          }
           return;
         }
         settle();
         resolve(readResult.port);
       });
     };
-    const attachPortFileWatcher = (): boolean => {
+    const attachPortFileWatcher = (): void => {
       try {
         const nextFileWatcher = watch(activePortPath, readAndResolve);
         nextFileWatcher.once("error", (cause: unknown) => {
           failWatch(activePortPath, cause);
         });
         fileWatcher = nextFileWatcher;
-        return true;
-      } catch {
-        return false;
+      } catch (cause) {
+        if (nodeErrorCode(cause) !== "ENOENT") {
+          failWatch(activePortPath, cause);
+        }
       }
     };
     const observePortFile = (): void => {
@@ -152,7 +174,7 @@ export const prepareDevToolsActivePortFileEffect = (
     catch: (cause) =>
       new ElectronOperationError({
         operation: "electron.dev.prepare-devtools-active-port-file",
-        message: errorMessage(cause),
+        message: `Failed to prepare ${activePortPath}: ${errorMessage(cause)}. ${rerunCommand("Check the profile directory and its permissions")}`,
         path: activePortPath,
         cause,
       }),

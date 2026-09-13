@@ -1,8 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { symlinkSync } from "node:fs";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { resolveDevToolsActivePortPath, waitForDevToolsActivePort } from "./devtools-active-port";
+import { Effect } from "effect";
+import {
+  prepareDevToolsActivePortFileEffect,
+  resolveDevToolsActivePortPath,
+  waitForDevToolsActivePort,
+} from "./devtools-active-port";
 
 const sleep = (durationMs: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, durationMs));
@@ -161,6 +167,58 @@ describe("Electron DevTools active port file", () => {
       fire();
       await expect(promise).rejects.toThrow(
         "Electron did not write a complete DevToolsActivePort file within 30000ms. Last read failure: Electron wrote an incomplete DevToolsActivePort file. Check the Electron startup output, then rerun `bun run electron:dev:cdp`.",
+      );
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("fails with a recovery step when the active port file cannot be prepared", async () => {
+    const directory = await createActivePortDirectory();
+    try {
+      const blockerPath = path.join(directory, "blocker");
+      await writeFile(blockerPath, "not a directory");
+      await expect(
+        Effect.runPromise(
+          prepareDevToolsActivePortFileEffect(path.join(blockerPath, "DevToolsActivePort")),
+        ),
+      ).rejects.toThrow(
+        "Check the profile directory and its permissions, then rerun `bun run electron:dev:cdp`.",
+      );
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("fails when the active port file cannot be read", async () => {
+    const directory = await createActivePortDirectory();
+    try {
+      const activePortPath = path.join(directory, "DevToolsActivePort");
+      const controller = new AbortController();
+      const portPromise = waitForDevToolsActivePort(activePortPath, controller.signal);
+      await sleep(20);
+      await mkdir(activePortPath);
+      await expect(portPromise).rejects.toThrow(`Failed to read ${activePortPath}: EISDIR`);
+      await expect(portPromise).rejects.toThrow(
+        "Check access to the file, then rerun `bun run electron:dev:cdp`.",
+      );
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("fails when the active port file cannot be watched", async () => {
+    const directory = await createActivePortDirectory();
+    try {
+      const activePortPath = path.join(directory, "DevToolsActivePort");
+      const controller = new AbortController();
+      const portPromise = waitForDevToolsActivePort(activePortPath, controller.signal);
+      await sleep(20);
+      symlinkSync("DevToolsActivePort-target", activePortPath);
+      symlinkSync("DevToolsActivePort", path.join(directory, "DevToolsActivePort-target"));
+      await expect(portPromise).rejects.toThrow(`Failed to watch ${activePortPath}`);
+      await expect(portPromise).rejects.toThrow(
+        "Check the profile directory and its permissions, then rerun `bun run electron:dev:cdp`.",
       );
     } finally {
       await rm(directory, { force: true, recursive: true });
