@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Cause, Chunk, Effect, Exit } from "effect";
 import { HostOperationError } from "../../effect/host-errors";
+import { createProcessEnvironment } from "../../infrastructure/process/process-environment";
 import { createDevServerProcessAdapter as createEffectDevServerProcessAdapter } from "./dev-server-process-adapter";
 
 const createDevServerProcessAdapter = (
@@ -220,6 +221,48 @@ setInterval(() => {}, 1000);
       await handle.stop();
 
       expect(existsSync(profileMarker)).toBe(false);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  test("keeps the resolved login-shell PATH for dev server commands", async () => {
+    if (process.platform === "win32") {
+      return;
+    }
+
+    const root = await mkdtemp(join(tmpdir(), "odt-dev-server-path-"));
+    const outputs: string[] = [];
+    const processEnv = createProcessEnvironment({
+      baseEnv: { PATH: "/usr/bin:/bin" },
+      platform: "linux",
+      readLoginShellPath: () => "/opt/resolved:/usr/bin",
+    });
+    const port = createDevServerProcessAdapter({
+      processEnv,
+      startGracePeriodMs: 50,
+      stopTimeoutMs: 750,
+    });
+    const command = [
+      quoteShellCommandArgForTest(process.execPath),
+      "-e",
+      quoteShellCommandArgForTest(
+        "process.stdout.write(process.env.PATH ?? ''); setInterval(() => {}, 1000)",
+      ),
+    ].join(" ");
+
+    try {
+      const handle = await port.start({
+        command,
+        cwd: root,
+        onExit: () => {},
+        onOutput: (output) => outputs.push(output.data),
+      });
+      await waitFor(() => outputs.join("").includes("/opt/resolved"), 1_000);
+
+      await handle.stop();
+
+      expect(outputs.join("").startsWith("/opt/resolved")).toBe(true);
     } finally {
       await rm(root, { force: true, recursive: true });
     }

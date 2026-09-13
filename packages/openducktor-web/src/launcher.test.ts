@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
@@ -17,6 +17,7 @@ import {
   resolveWebMcpBridgeDiscoveryMode,
   runLauncherEffect,
   runWebSignalShutdown,
+  startWebLauncherHostBackendEffect,
   validateLauncherNetworkOptionsEffect,
   viteServerOptions,
   writeRuntimeConfigResponse,
@@ -36,6 +37,7 @@ import {
   stopLauncherServices,
   waitForBackend,
 } from "./launcher-support";
+import * as backend from "./typescript-host-backend";
 import {
   allowedHostnamesFor,
   isLoopbackHost,
@@ -1636,7 +1638,41 @@ describe("buildWebLauncherBaseEnv", () => {
 
     const env = buildWebLauncherBaseEnv({ workspaceMode: false }, baseEnv);
 
+    expect(env).not.toBe(baseEnv);
     expect(env[OPENDUCKTOR_DEV_INSTANCE_ENV]).toBeUndefined();
     expect(env.PATH).toBe("/usr/bin");
+  });
+});
+
+describe("startWebLauncherHostBackendEffect", () => {
+  test("passes the development instance id into the host process env", async () => {
+    const startHost = spyOn(backend, "startTypescriptHostBackendEffect").mockReturnValue(
+      Effect.succeed({
+        port: 23456,
+        exited: Promise.resolve(0),
+        stop: async () => {},
+      }),
+    );
+    try {
+      await Effect.runPromise(
+        startWebLauncherHostBackendEffect({
+          port: 0,
+          frontendOrigin: "http://127.0.0.1:1420",
+          controlToken: "control-token",
+          appToken: "app-token",
+          logger: { error: () => Effect.void, info: () => Effect.void, success: () => Effect.void },
+          onBackgroundFailure: () => {},
+          runtimeDistribution: { mode: "source", workspaceRoot: "/workspace" },
+          workspaceMode: true,
+          developmentInstanceId: "instance-one",
+        }),
+      );
+
+      const hostOptions = startHost.mock.calls[0]?.[0];
+      expect(hostOptions?.processEnv?.[OPENDUCKTOR_DEV_INSTANCE_ENV]).toBe("instance-one");
+      expect(hostOptions?.processEnv).not.toBe(process.env);
+    } finally {
+      startHost.mockRestore();
+    }
   });
 });

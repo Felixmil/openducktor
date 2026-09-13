@@ -84,15 +84,23 @@ describe("createProcessEnvironment", () => {
     expect(env.PATH).toBeUndefined();
   });
 
-  test("sets SHELL to the resolved account shell", () => {
-    const env = createProcessEnvironment({
-      baseEnv: { SHELL: "/bin/bash", PATH: "/usr/bin:/bin" },
-      platform: "darwin",
-      readUserShell: () => "/usr/bin/zsh",
-      readLoginShellPath: () => null,
-    });
+  test("sets SHELL to the resolved account shell", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "odt-process-environment-"));
+    const shellPath = path.join(root, "account-shell");
+    try {
+      await writeFakeLoginShell(shellPath, "/opt/account:/usr/bin");
 
-    expect(env.SHELL).toBe("/usr/bin/zsh");
+      const env = createProcessEnvironment({
+        baseEnv: { SHELL: "/bin/bash", PATH: "/usr/bin:/bin" },
+        platform: "darwin",
+        readUserShell: () => shellPath,
+        readLoginShellPath: () => null,
+      });
+
+      expect(env.SHELL).toBe(shellPath);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
   });
 
   test("keeps the inherited SHELL when no absolute login shell resolves", () => {
@@ -104,6 +112,71 @@ describe("createProcessEnvironment", () => {
     });
 
     expect(env.SHELL).toBe("bash");
+  });
+
+  testIfPosixShellIsAvailable(
+    "falls back to the inherited SHELL when the account shell is not executable",
+    async () => {
+      const root = await mkdtemp(path.join(tmpdir(), "odt-process-environment-"));
+      const accountShellPath = path.join(root, "account-shell");
+      const configuredShellPath = path.join(root, "configured-shell");
+      try {
+        await writeFile(accountShellPath, "#!/bin/sh\n");
+        await chmod(accountShellPath, 0o644);
+        await writeFakeLoginShell(configuredShellPath, "/opt/configured:/usr/bin");
+
+        const env = createProcessEnvironment({
+          baseEnv: { SHELL: configuredShellPath, PATH: "/usr/bin:/bin" },
+          platform: "linux",
+          readUserShell: () => accountShellPath,
+          readLoginShellPath: () => null,
+        });
+
+        expect(env.SHELL).toBe(configuredShellPath);
+      } finally {
+        await rm(root, { force: true, recursive: true });
+      }
+    },
+  );
+
+  test("falls back to the inherited SHELL when the account shell is a nologin shell", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "odt-process-environment-"));
+    const accountShellPath = path.join(root, "nologin");
+    const configuredShellPath = path.join(root, "configured-shell");
+    try {
+      await writeFakeLoginShell(accountShellPath, "/opt/account:/usr/bin");
+      await writeFakeLoginShell(configuredShellPath, "/opt/configured:/usr/bin");
+
+      const env = createProcessEnvironment({
+        baseEnv: { SHELL: configuredShellPath, PATH: "/usr/bin:/bin" },
+        platform: "linux",
+        readUserShell: () => accountShellPath,
+        readLoginShellPath: () => null,
+      });
+
+      expect(env.SHELL).toBe(configuredShellPath);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  test("falls back to the inherited SHELL when the account shell does not exist", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "odt-process-environment-"));
+    const configuredShellPath = path.join(root, "configured-shell");
+    try {
+      await writeFakeLoginShell(configuredShellPath, "/opt/configured:/usr/bin");
+
+      const env = createProcessEnvironment({
+        baseEnv: { SHELL: configuredShellPath, PATH: "/usr/bin:/bin" },
+        platform: "linux",
+        readUserShell: () => path.join(root, "missing-shell"),
+        readLoginShellPath: () => null,
+      });
+
+      expect(env.SHELL).toBe(configuredShellPath);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
   });
 
   testIfPosixShellIsAvailable(

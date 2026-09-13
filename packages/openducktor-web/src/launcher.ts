@@ -105,7 +105,7 @@ export const buildWebLauncherBaseEnv = (
 ): NodeJS.ProcessEnv =>
   options.workspaceMode
     ? { ...processEnv, [OPENDUCKTOR_DEV_INSTANCE_ENV]: options.developmentInstanceId }
-    : processEnv;
+    : { ...processEnv };
 
 export const startWebLauncherHostBackendEffect = ({
   developmentInstanceId,
