@@ -7,8 +7,9 @@ import { ElectronOperationError, errorMessage } from "../src/effect/electron-err
 import { resolveElectronProfilePath } from "../src/main/electron-app-identity";
 
 const DEVTOOLS_ACTIVE_PORT_FILE_NAME = "DevToolsActivePort";
-const DEVTOOLS_ACTIVE_PORT_READ_RETRY_MS = 50;
 const ELECTRON_DEBUG_PORT_TIMEOUT_MS = 30_000;
+const DEVTOOLS_ACTIVE_PORT_RECOVERY_STEP =
+  "Check the Electron startup output, then rerun `bun run electron:dev:cdp`.";
 
 export const resolveDevToolsActivePortPath = (developmentInstanceId: string): string =>
   path.join(
@@ -44,13 +45,16 @@ const readDevToolsActivePort = async (
   return { ok: true, port };
 };
 
+const devToolsActivePortTimeoutMessage = (lastFailure: string | null): string =>
+  lastFailure === null
+    ? `Electron did not write ${DEVTOOLS_ACTIVE_PORT_FILE_NAME} within ${ELECTRON_DEBUG_PORT_TIMEOUT_MS}ms. ${DEVTOOLS_ACTIVE_PORT_RECOVERY_STEP}`
+    : `Electron did not write a complete ${DEVTOOLS_ACTIVE_PORT_FILE_NAME} file within ${ELECTRON_DEBUG_PORT_TIMEOUT_MS}ms. Last read failure: ${lastFailure} ${DEVTOOLS_ACTIVE_PORT_RECOVERY_STEP}`;
+
 export const waitForDevToolsActivePort = (
   activePortPath: string,
   signal: AbortSignal,
-  timeoutMs: number = ELECTRON_DEBUG_PORT_TIMEOUT_MS,
 ): Promise<number | null> =>
   new Promise((resolve, reject) => {
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let settled = false;
     let lastFailure: string | null = null;
     const settle = (): void => {
@@ -59,19 +63,16 @@ export const waitForDevToolsActivePort = (
       }
       settled = true;
       clearTimeout(timeout);
-      if (retryTimer !== null) {
-        clearTimeout(retryTimer);
-      }
       watcher.close();
       signal.removeEventListener("abort", handleAbort);
     };
     const readAndResolve = (): void => {
       void readDevToolsActivePort(activePortPath).then((readResult) => {
+        if (settled) {
+          return;
+        }
         if (!readResult.ok) {
           lastFailure = readResult.failure;
-          if (!settled) {
-            retryTimer = setTimeout(readAndResolve, DEVTOOLS_ACTIVE_PORT_READ_RETRY_MS);
-          }
           return;
         }
         settle();
@@ -94,14 +95,8 @@ export const waitForDevToolsActivePort = (
     });
     const timeout = setTimeout(() => {
       settle();
-      reject(
-        new Error(
-          lastFailure === null
-            ? `Electron did not write ${DEVTOOLS_ACTIVE_PORT_FILE_NAME} within ${timeoutMs}ms.`
-            : `Electron did not write a complete ${DEVTOOLS_ACTIVE_PORT_FILE_NAME} file within ${timeoutMs}ms. Last read failure: ${lastFailure}`,
-        ),
-      );
-    }, timeoutMs);
+      reject(new Error(devToolsActivePortTimeoutMessage(lastFailure)));
+    }, ELECTRON_DEBUG_PORT_TIMEOUT_MS);
     watcher.once("error", (cause: unknown) => {
       settle();
       reject(cause);
