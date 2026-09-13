@@ -88,7 +88,7 @@ export const waitForDevToolsActivePort = (
       return;
     }
     const watcher = watch(path.dirname(activePortPath), (_eventType, fileName) => {
-      if (fileName !== DEVTOOLS_ACTIVE_PORT_FILE_NAME) {
+      if (fileName !== null && fileName !== DEVTOOLS_ACTIVE_PORT_FILE_NAME) {
         return;
       }
       readAndResolve();

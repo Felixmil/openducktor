@@ -525,7 +525,7 @@ describe("electron dev script", () => {
     }
   });
 
-  test("cancels the CDP port wait when Electron exits before writing the port file", async () => {
+  test("fails when Electron exits before it publishes the CDP port", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "odt-electron-cdp-"));
     const loggedLines: string[] = [];
     const originalConsoleLog = console.log;
@@ -537,21 +537,22 @@ describe("electron dev script", () => {
       const activePortPath = path.join(directory, "DevToolsActivePort");
       const fakeProcessHandlers = createFakeProcessHandlers();
 
-      const exitCode = await runElectronEffect(
-        runElectronDevLifecycleEffect({
-          buildBundles: () => Effect.void,
-          devToolsActivePortPath: activePortPath,
-          electronExecutablePath: "/repo/node_modules/electron/dist/Electron",
-          processHandlers: fakeProcessHandlers.processHandlers,
-          renderer: createFakeRenderer(),
-          startElectronProcess: () => ({
-            exited: Promise.resolve(0),
-            kill() {},
+      await expect(
+        runElectronEffect(
+          runElectronDevLifecycleEffect({
+            buildBundles: () => Effect.void,
+            devToolsActivePortPath: activePortPath,
+            electronExecutablePath: "/repo/node_modules/electron/dist/Electron",
+            processHandlers: fakeProcessHandlers.processHandlers,
+            renderer: createFakeRenderer(),
+            startElectronProcess: () => ({
+              exited: Promise.resolve(0),
+              kill() {},
+            }),
           }),
-        }),
-      );
+        ),
+      ).rejects.toThrow("Electron exited before it published the CDP port.");
 
-      expect(exitCode).toBe(0);
       await writeFile(activePortPath, "45678\n/devtools/browser/example\n");
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(loggedLines.filter((line) => line.includes("CDP endpoint"))).toEqual([]);
@@ -704,6 +705,149 @@ describe("electron dev script", () => {
 
       expect(await lifecycle).toBe(143);
       expect(remoteDebuggingValues).toEqual([true, true]);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("settles when a replacement Electron exits right after publishing the CDP port", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "odt-electron-cdp-"));
+    const endpointLine = electronDebugEndpointLogLine(45_678);
+    const loggedLines: string[] = [];
+    const originalConsoleLog = console.log;
+    let resolveReplacementExit: (exitCode: number) => void = () => {};
+    const replacementExited = new Promise<number>((resolve) => {
+      resolveReplacementExit = resolve;
+    });
+    console.log = (...arguments_: unknown[]) => {
+      const line = arguments_.map(String).join(" ");
+      loggedLines.push(line);
+      if (
+        line === endpointLine &&
+        loggedLines.filter((entry) => entry === endpointLine).length === 2
+      ) {
+        resolveReplacementExit(0);
+      }
+    };
+
+    try {
+      const activePortPath = path.join(directory, "DevToolsActivePort");
+      const fakeProcessHandlers = createFakeProcessHandlers();
+      const changeListeners: Array<(filePath: string) => void> = [];
+      const watcher: ElectronDevRendererWatcher = {
+        add() {
+          return watcher;
+        },
+        on(event, listener) {
+          if (event === "change") {
+            changeListeners.push(listener);
+          }
+          return watcher;
+        },
+      };
+      const remoteDebuggingValues: boolean[] = [];
+      let resolveInitialExit: (exitCode: number) => void = () => {};
+      const initialExited = new Promise<number>((resolve) => {
+        resolveInitialExit = resolve;
+      });
+
+      const lifecycle = runElectronEffect(
+        runElectronDevLifecycleEffect({
+          buildBundles: () => Effect.void,
+          devToolsActivePortPath: activePortPath,
+          electronExecutablePath: "/repo/node_modules/electron/dist/Electron",
+          processHandlers: fakeProcessHandlers.processHandlers,
+          renderer: createFakeRenderer({ watcher }),
+          startElectronProcess: (_rendererDevUrl, _executablePath, remoteDebugging) => {
+            const launchIndex = remoteDebuggingValues.length;
+            remoteDebuggingValues.push(remoteDebugging);
+            void writeFile(activePortPath, "45678\n/devtools/browser/example\n");
+            if (launchIndex === 0) {
+              return {
+                exited: initialExited,
+                kill() {
+                  resolveInitialExit(0);
+                },
+              };
+            }
+            return {
+              exited: replacementExited,
+              kill() {
+                resolveReplacementExit(0);
+              },
+            };
+          },
+        }),
+      );
+
+      for (
+        let attempt = 0;
+        attempt < 50 && loggedLines.filter((line) => line === endpointLine).length < 1;
+        attempt += 1
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(loggedLines.filter((line) => line === endpointLine).length).toBe(1);
+
+      const changeListener = changeListeners[0];
+      if (!changeListener) {
+        throw new Error("Expected the lifecycle to register a watcher change listener.");
+      }
+      changeListener(path.join(ELECTRON_RESTART_WATCH_ROOTS[0], "main.ts"));
+
+      expect(await lifecycle).toBe(0);
+      expect(remoteDebuggingValues).toEqual([true, true]);
+      expect(loggedLines.filter((line) => line === endpointLine).length).toBe(2);
+    } finally {
+      console.log = originalConsoleLog;
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("does not launch Electron when shutdown starts during CDP port file preparation", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "odt-electron-cdp-"));
+    const fakeProcessHandlers = createFakeProcessHandlers();
+    let startCalls = 0;
+
+    try {
+      const exitCode = await runElectronEffect(
+        runElectronDevLifecycleEffect({
+          buildBundles: () => Effect.void,
+          devToolsActivePortPath: path.join(directory, "DevToolsActivePort"),
+          prepareDevToolsPortFile: () =>
+            Effect.tryPromise({
+              try: async () => {
+                const shutdownHandler = fakeProcessHandlers.registered.find(
+                  ({ event }) => event === "SIGTERM",
+                );
+                if (!shutdownHandler) {
+                  throw new Error("Expected the SIGTERM handler to be registered before launch.");
+                }
+                shutdownHandler.listener();
+                await Promise.resolve();
+              },
+              catch: (cause) =>
+                new ElectronOperationError({
+                  operation: "electron.dev.test-prepare-devtools-port-file",
+                  message: cause instanceof Error ? cause.message : String(cause),
+                  cause,
+                }),
+            }),
+          electronExecutablePath: "/repo/node_modules/electron/dist/Electron",
+          processHandlers: fakeProcessHandlers.processHandlers,
+          renderer: createFakeRenderer(),
+          startElectronProcess: () => {
+            startCalls += 1;
+            return {
+              exited: Promise.resolve(0),
+              kill() {},
+            };
+          },
+        }),
+      );
+
+      expect(exitCode).toBe(143);
+      expect(startCalls).toBe(0);
     } finally {
       await rm(directory, { force: true, recursive: true });
     }
