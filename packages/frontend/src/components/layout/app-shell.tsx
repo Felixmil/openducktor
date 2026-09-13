@@ -73,6 +73,7 @@ const persistLeftSidebarPreference = (preference: AppShellSidebarPreference): vo
 
 const WorkspaceAppShell = memo(function WorkspaceAppShell(): ReactElement {
   const activeWorkspace = useActiveWorkspace();
+  const { isLoadingWorkspaces, workspaceLoadError } = useWorkspacePresence();
   useQuery({
     ...repoConfigQueryOptions(activeWorkspace?.workspaceId ?? NO_ACTIVE_WORKSPACE_ID),
     enabled: activeWorkspace !== null,
@@ -249,6 +250,8 @@ const WorkspaceAppShell = memo(function WorkspaceAppShell(): ReactElement {
         open={isRepositoryModalOpen}
         canClose
         onOpenChange={handleRepositoryModalOpenChange}
+        isLoadingWorkspaces={isLoadingWorkspaces}
+        workspaceLoadError={workspaceLoadError}
       />
     </>
   );
