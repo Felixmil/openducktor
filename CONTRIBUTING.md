@@ -36,7 +36,7 @@ bun run electron:dev
 Useful alternative:
 
 - Browser mode if you want agents to access it with tools like `agent-browser`: `bun run browser:dev`.
-- Electron mode with CDP if you want agents to control the desktop app: `bun run electron:dev:cdp`.
+- Start the Electron desktop app with CDP when an agent must control it: `bun run electron:dev:cdp`.
 
 ## Local Tooling Reference
 
@@ -75,7 +75,7 @@ Electron desktop with CDP for agent control:
 bun run electron:dev:cdp
 ```
 
-The command assigns an unused CDP port and prints `[electron:dev] CDP endpoint: http://127.0.0.1:<port>`. Connect an agent with `agent-browser connect <port>`. Do not enable CDP when you do not need it, because any local process can then control the app.
+The command assigns an unused CDP port. It prints `[electron:dev] CDP endpoint: http://127.0.0.1:<port>`. Connect an agent with `agent-browser connect <port>`. Enable CDP only when you need it. Any local process can control the app while CDP is active.
 
 Browser mode for UI validation against the real backend:
 
