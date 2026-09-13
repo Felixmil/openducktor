@@ -2,6 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { OPENDUCKTOR_DEV_INSTANCE_ENV } from "@openducktor/contracts";
 import { Effect } from "effect";
 import { z } from "zod";
 import { runWebBoundary } from "./effect/web-errors";
@@ -197,6 +198,9 @@ test.each([
         expect(await result).toBe(0);
       }
       expect(startHost).toHaveBeenCalledTimes(1);
+      const hostOptions = startHost.mock.calls[0]?.[0];
+      expect(hostOptions?.processEnv).not.toBe(process.env);
+      expect(hostOptions?.processEnv?.[OPENDUCKTOR_DEV_INSTANCE_ENV]).toBeUndefined();
       if (externalUrl !== undefined) {
         expect(startHost.mock.calls[0]?.[0].frontendOrigin).toBe(externalUrl.trim());
       }

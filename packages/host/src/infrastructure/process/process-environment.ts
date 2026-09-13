@@ -19,10 +19,13 @@ const HOST_CONTROL_ENV_NAMES = [
   "OPENDUCKTOR_APP_TOKEN",
 ] as const;
 
+export type ReadUserShell = () => string | null;
+
 export type CreateProcessEnvironmentInput = {
   baseEnv?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   readLoginShellPath?: (env: NodeJS.ProcessEnv) => string | null;
+  readUserShell?: ReadUserShell;
 };
 
 const isPathKey = (key: string): boolean => key.toLowerCase() === "path";
@@ -130,18 +133,25 @@ const setPathEnvironmentValue = (
   env.PATH = value;
 };
 
-const currentUserShell = (env: NodeJS.ProcessEnv): string | null => {
-  const shell = env.SHELL;
-  if (shell && isAbsolute(shell)) {
-    return shell;
-  }
-
+export const accountUserShell = (): string | null => {
   try {
-    const userShell = userInfo().shell;
-    return userShell && isAbsolute(userShell) ? userShell : null;
+    return userInfo().shell || null;
   } catch {
     return null;
   }
+};
+
+export const resolveUserLoginShell = (
+  env: NodeJS.ProcessEnv,
+  readUserShell: ReadUserShell = accountUserShell,
+): string | null => {
+  const accountShell = readUserShell();
+  if (accountShell && isAbsolute(accountShell)) {
+    return accountShell;
+  }
+
+  const shell = env.SHELL;
+  return shell && isAbsolute(shell) ? shell : null;
 };
 
 const minimalLoginShellEnv = (env: NodeJS.ProcessEnv, shell: string): NodeJS.ProcessEnv => ({
@@ -179,8 +189,11 @@ const parsePathFromLoginShellOutput = (stdout: Buffer): string | null => {
   return null;
 };
 
-const readCurrentUserLoginShellPath = (env: NodeJS.ProcessEnv = process.env): string | null => {
-  const shell = currentUserShell(env);
+const readCurrentUserLoginShellPath = (
+  env: NodeJS.ProcessEnv,
+  readUserShell: ReadUserShell,
+): string | null => {
+  const shell = resolveUserLoginShell(env, readUserShell);
   if (!shell) {
     return null;
   }
@@ -203,11 +216,18 @@ const readCurrentUserLoginShellPath = (env: NodeJS.ProcessEnv = process.env): st
 export const createProcessEnvironment = ({
   baseEnv = process.env,
   platform = process.platform,
-  readLoginShellPath = readCurrentUserLoginShellPath,
+  readUserShell = accountUserShell,
+  readLoginShellPath = (env: NodeJS.ProcessEnv) =>
+    readCurrentUserLoginShellPath(env, readUserShell),
 }: CreateProcessEnvironmentInput = {}): NodeJS.ProcessEnv => {
   const env = normalizeProcessEnvironment(baseEnv, platform);
   if (platform === "win32") {
     return env;
+  }
+
+  const shell = resolveUserLoginShell(env, readUserShell);
+  if (shell) {
+    env.SHELL = shell;
   }
 
   const loginShellPath = readLoginShellPath(env);

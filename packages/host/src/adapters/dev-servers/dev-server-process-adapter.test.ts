@@ -179,6 +179,52 @@ setInterval(() => {}, 1000);
     }
   });
 
+  test("does not run the POSIX login profile for dev server commands", async () => {
+    if (process.platform === "win32") {
+      return;
+    }
+
+    const root = await mkdtemp(join(tmpdir(), "odt dev server no login "));
+    const profileMarker = join(root, "profile-ran");
+    const readyPath = join(root, "ready");
+    await writeFile(
+      join(root, ".profile"),
+      `printf profile > ${quoteShellCommandArgForTest(profileMarker)}\n`,
+    );
+    await writeFile(
+      join(root, "server.mjs"),
+      `import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(readyPath)}, "ready");
+setInterval(() => {}, 1000);
+`,
+    );
+    const port = createDevServerProcessAdapter({
+      processEnv: { ...process.env, HOME: root },
+      startGracePeriodMs: 50,
+      stopTimeoutMs: 750,
+    });
+    const command = [
+      quoteShellCommandArgForTest(process.execPath),
+      quoteShellCommandArgForTest(join(root, "server.mjs")),
+    ].join(" ");
+
+    try {
+      const handle = await port.start({
+        command,
+        cwd: root,
+        onExit: () => {},
+        onOutput: () => {},
+      });
+      await waitFor(() => existsSync(readyPath), 1_000);
+
+      await handle.stop();
+
+      expect(existsSync(profileMarker)).toBe(false);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
   test("stops a command and its long-lived descendant", async () => {
     const root = await mkdtemp(join(tmpdir(), "odt-dev-server-tree-"));
     const childPidPath = join(root, "child.pid");

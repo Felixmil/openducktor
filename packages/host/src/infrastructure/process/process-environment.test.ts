@@ -11,6 +11,14 @@ import {
 
 const testIfPosixShellIsAvailable = process.platform === "win32" ? test.skip : test;
 
+const writeFakeLoginShell = async (shellPath: string, pathValue: string): Promise<void> => {
+  await writeFile(
+    shellPath,
+    `#!/bin/sh\nprintf 'profile noise\\0__OPENDUCKTOR_ENV_START__\\0USER=max\\0PATH=${pathValue}\\0'\n`,
+  );
+  await chmod(shellPath, 0o755);
+};
+
 describe("createProcessEnvironment", () => {
   test("merges the macOS login shell PATH before the inherited GUI PATH", () => {
     const env = createProcessEnvironment({
@@ -76,21 +84,63 @@ describe("createProcessEnvironment", () => {
     expect(env.PATH).toBeUndefined();
   });
 
+  test("sets SHELL to the resolved account shell", () => {
+    const env = createProcessEnvironment({
+      baseEnv: { SHELL: "/bin/bash", PATH: "/usr/bin:/bin" },
+      platform: "darwin",
+      readUserShell: () => "/usr/bin/zsh",
+      readLoginShellPath: () => null,
+    });
+
+    expect(env.SHELL).toBe("/usr/bin/zsh");
+  });
+
+  test("keeps the inherited SHELL when no absolute login shell resolves", () => {
+    const env = createProcessEnvironment({
+      baseEnv: { SHELL: "bash", PATH: "/usr/bin:/bin" },
+      platform: "linux",
+      readUserShell: () => null,
+      readLoginShellPath: () => null,
+    });
+
+    expect(env.SHELL).toBe("bash");
+  });
+
   testIfPosixShellIsAvailable(
-    "reads and merges PATH from the current user's login shell",
+    "reads PATH from the account login shell before the SHELL value",
+    async () => {
+      const root = await mkdtemp(path.join(tmpdir(), "odt-login-shell-path-"));
+      const accountShellPath = path.join(root, "account-shell");
+      const configuredShellPath = path.join(root, "configured-shell");
+      try {
+        await writeFakeLoginShell(accountShellPath, "/opt/account:/usr/bin");
+        await writeFakeLoginShell(configuredShellPath, "/opt/configured:/usr/bin");
+
+        const env = createProcessEnvironment({
+          baseEnv: { SHELL: configuredShellPath, PATH: "/usr/bin:/bin" },
+          platform: "darwin",
+          readUserShell: () => accountShellPath,
+        });
+
+        expect(env.PATH?.split(":")).toEqual(["/opt/account", "/usr/bin", "/bin"]);
+      } finally {
+        await rm(root, { force: true, recursive: true });
+      }
+    },
+  );
+
+  testIfPosixShellIsAvailable(
+    "falls back to the SHELL value when the account shell is unavailable",
     async () => {
       const root = await mkdtemp(path.join(tmpdir(), "odt-login-shell-path-"));
       const shellPath = path.join(root, "fake-shell");
       try {
-        await writeFile(
-          shellPath,
-          "#!/bin/sh\nprintf 'profile noise\\0__OPENDUCKTOR_ENV_START__\\0USER=max\\0PATH=/opt/bin:/usr/bin\\0'\n",
-        );
-        await chmod(shellPath, 0o755);
+        await writeFakeLoginShell(shellPath, "/opt/bin:/usr/bin");
 
         const env = createProcessEnvironment({
           baseEnv: { SHELL: shellPath, PATH: "/usr/bin:/bin" },
           platform: "darwin",
+          readUserShell: () => null,
         });
 
         expect(env.PATH?.split(":")).toEqual(["/opt/bin", "/usr/bin", "/bin"]);

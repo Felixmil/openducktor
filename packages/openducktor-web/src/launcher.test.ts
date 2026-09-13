@@ -4,12 +4,14 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { OPENDUCKTOR_DEV_INSTANCE_ENV } from "@openducktor/contracts";
 import { Effect } from "effect";
 import { z } from "zod";
 import { createBrowserRuntimeConfigState } from "./browser-runtime-config-state";
 import { parseCliArgs } from "./cli";
 import { WebOperationError } from "./effect/web-errors";
 import {
+  buildWebLauncherBaseEnv,
   logDuplicateWebTerminationNotice,
   preserveLauncherFailureAfterStop,
   resolveWebMcpBridgeDiscoveryMode,
@@ -1612,5 +1614,29 @@ describe("launcher internals", () => {
     } finally {
       await rm(staticRoot, { force: true, recursive: true });
     }
+  });
+});
+
+describe("buildWebLauncherBaseEnv", () => {
+  test("adds the development instance id in workspace mode without mutating the base env", () => {
+    const baseEnv: NodeJS.ProcessEnv = { PATH: "/usr/bin" };
+
+    const env = buildWebLauncherBaseEnv(
+      { workspaceMode: true, developmentInstanceId: "instance-one" },
+      baseEnv,
+    );
+
+    expect(env[OPENDUCKTOR_DEV_INSTANCE_ENV]).toBe("instance-one");
+    expect(env.PATH).toBe("/usr/bin");
+    expect(baseEnv[OPENDUCKTOR_DEV_INSTANCE_ENV]).toBeUndefined();
+  });
+
+  test("adds no development instance id in production mode", () => {
+    const baseEnv: NodeJS.ProcessEnv = { PATH: "/usr/bin" };
+
+    const env = buildWebLauncherBaseEnv({ workspaceMode: false }, baseEnv);
+
+    expect(env[OPENDUCKTOR_DEV_INSTANCE_ENV]).toBeUndefined();
+    expect(env.PATH).toBe("/usr/bin");
   });
 });

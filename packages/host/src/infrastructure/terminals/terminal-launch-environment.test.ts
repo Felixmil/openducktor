@@ -7,6 +7,9 @@ import { createTerminalLaunchEnvironment } from "./terminal-launch-environment";
 
 const testIfPosixShellIsAvailable = process.platform === "win32" ? test.skip : test;
 
+const resolveEnvironment = (input: Parameters<typeof createTerminalLaunchEnvironment>[0]) =>
+  Effect.runPromise(createTerminalLaunchEnvironment(input)());
+
 testIfPosixShellIsAvailable(
   "uses the host-resolved environment without probing the login shell again",
   async () => {
@@ -17,16 +20,14 @@ testIfPosixShellIsAvailable(
       await writeFile(shellPath, `#!/bin/sh\nprintf probed > ${JSON.stringify(probePath)}\n`);
       await chmod(shellPath, 0o755);
 
-      const environment = await Effect.runPromise(
-        createTerminalLaunchEnvironment({
-          processEnv: {
-            PATH: "/already/resolved:/usr/bin",
-            SHELL: shellPath,
-          },
-          platform: "darwin",
-          readUserShell: () => null,
-        })(),
-      );
+      const environment = await resolveEnvironment({
+        processEnv: {
+          PATH: "/already/resolved:/usr/bin",
+          SHELL: shellPath,
+        },
+        platform: "darwin",
+        readUserShell: () => null,
+      });
 
       expect(environment.shell).toBe(shellPath);
       expect(environment.env.PATH).toBe("/already/resolved:/usr/bin");
@@ -36,3 +37,71 @@ testIfPosixShellIsAvailable(
     }
   },
 );
+
+testIfPosixShellIsAvailable(
+  "prefers the account login shell over the inherited SHELL value",
+  async () => {
+    const environment = await resolveEnvironment({
+      processEnv: {
+        PATH: "/usr/bin",
+        SHELL: "/bin/bash",
+      },
+      platform: "linux",
+      readUserShell: () => "/usr/bin/zsh",
+    });
+
+    expect(environment.shell).toBe("/usr/bin/zsh");
+    expect(environment.env.SHELL).toBe("/usr/bin/zsh");
+    expect(environment.args).toEqual(["-l"]);
+  },
+);
+
+testIfPosixShellIsAvailable(
+  "falls back to the inherited SHELL value when the account shell is unavailable",
+  async () => {
+    const environment = await resolveEnvironment({
+      processEnv: {
+        PATH: "/usr/bin",
+        SHELL: "/bin/bash",
+      },
+      platform: "linux",
+      readUserShell: () => null,
+    });
+
+    expect(environment.shell).toBe("/bin/bash");
+    expect(environment.env.SHELL).toBe("/bin/bash");
+  },
+);
+
+testIfPosixShellIsAvailable(
+  "falls back to the inherited SHELL value when the account shell is not absolute",
+  async () => {
+    const environment = await resolveEnvironment({
+      processEnv: {
+        PATH: "/usr/bin",
+        SHELL: "/bin/bash",
+      },
+      platform: "linux",
+      readUserShell: () => "zsh",
+    });
+
+    expect(environment.shell).toBe("/bin/bash");
+    expect(environment.env.SHELL).toBe("/bin/bash");
+  },
+);
+
+testIfPosixShellIsAvailable("fails when neither shell value is absolute", async () => {
+  const result = await Effect.runPromiseExit(
+    createTerminalLaunchEnvironment({
+      processEnv: {
+        PATH: "/usr/bin",
+        SHELL: "bash",
+      },
+      platform: "linux",
+      readUserShell: () => "zsh",
+    })(),
+  );
+
+  expect(result._tag).toBe("Failure");
+  expect(String(result)).toContain("shell_unavailable");
+});
