@@ -19,18 +19,38 @@ export const resolveDevToolsActivePortPath = (developmentInstanceId: string): st
     DEVTOOLS_ACTIVE_PORT_FILE_NAME,
   );
 
-const readDevToolsActivePort = async (activePortPath: string): Promise<number> => {
-  const contents = await readFile(activePortPath, "utf8");
-  const port = Number.parseInt(contents.split("\n", 1)[0] ?? "", 10);
-  if (!Number.isInteger(port) || port <= 0) {
-    throw new Error(`Electron wrote an invalid ${DEVTOOLS_ACTIVE_PORT_FILE_NAME} file.`);
+type DevToolsActivePortReadResult =
+  | { readonly ok: true; readonly port: number }
+  | { readonly ok: false; readonly failure: string };
+
+const readDevToolsActivePort = async (
+  activePortPath: string,
+): Promise<DevToolsActivePortReadResult> => {
+  let contents: string;
+  try {
+    contents = await readFile(activePortPath, "utf8");
+  } catch (cause) {
+    return { ok: false, failure: errorMessage(cause) };
   }
-  return port;
+  const [portLine = "", browserPathLine = ""] = contents.split("\n");
+  const port = Number.parseInt(portLine, 10);
+  if (!Number.isInteger(port) || port <= 0 || browserPathLine === "") {
+    return {
+      ok: false,
+      failure: `Electron wrote an incomplete ${DEVTOOLS_ACTIVE_PORT_FILE_NAME} file.`,
+    };
+  }
+  return { ok: true, port };
 };
 
-export const waitForDevToolsActivePort = (activePortPath: string): Promise<number> =>
+export const waitForDevToolsActivePort = (
+  activePortPath: string,
+  signal: AbortSignal,
+  timeoutMs: number = ELECTRON_DEBUG_PORT_TIMEOUT_MS,
+): Promise<number | null> =>
   new Promise((resolve, reject) => {
     let settled = false;
+    let lastFailure: string | null = null;
     const settle = (): void => {
       if (settled) {
         return;
@@ -38,34 +58,44 @@ export const waitForDevToolsActivePort = (activePortPath: string): Promise<numbe
       settled = true;
       clearTimeout(timeout);
       watcher.close();
+      signal.removeEventListener("abort", handleAbort);
     };
+    const handleAbort = (): void => {
+      settle();
+      resolve(null);
+    };
+    if (signal.aborted) {
+      resolve(null);
+      return;
+    }
     const watcher = watch(path.dirname(activePortPath), (_eventType, fileName) => {
       if (fileName !== DEVTOOLS_ACTIVE_PORT_FILE_NAME) {
         return;
       }
-      void readDevToolsActivePort(activePortPath).then(
-        (port) => {
-          settle();
-          resolve(port);
-        },
-        (cause: unknown) => {
-          settle();
-          reject(cause);
-        },
-      );
+      void readDevToolsActivePort(activePortPath).then((readResult) => {
+        if (!readResult.ok) {
+          lastFailure = readResult.failure;
+          return;
+        }
+        settle();
+        resolve(readResult.port);
+      });
     });
     const timeout = setTimeout(() => {
       settle();
       reject(
         new Error(
-          `Electron did not write ${DEVTOOLS_ACTIVE_PORT_FILE_NAME} within ${ELECTRON_DEBUG_PORT_TIMEOUT_MS}ms.`,
+          lastFailure === null
+            ? `Electron did not write ${DEVTOOLS_ACTIVE_PORT_FILE_NAME} within ${timeoutMs}ms.`
+            : `Electron did not write a complete ${DEVTOOLS_ACTIVE_PORT_FILE_NAME} file within ${timeoutMs}ms. Last read failure: ${lastFailure}`,
         ),
       );
-    }, ELECTRON_DEBUG_PORT_TIMEOUT_MS);
+    }, timeoutMs);
     watcher.once("error", (cause: unknown) => {
       settle();
       reject(cause);
     });
+    signal.addEventListener("abort", handleAbort, { once: true });
   });
 
 export const prepareDevToolsActivePortFileEffect = (

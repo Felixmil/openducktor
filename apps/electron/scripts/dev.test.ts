@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { Cause, Chunk, Effect, Exit, Fiber } from "effect";
 import type {
@@ -465,6 +467,97 @@ describe("electron dev script", () => {
       "SIGTERM",
       "SIGINT",
     ]);
+  });
+
+  test("waits for the CDP port file before logging the endpoint", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "odt-electron-cdp-"));
+    const endpointLine = electronDebugEndpointLogLine(45_678);
+    const loggedLines: string[] = [];
+    const originalConsoleLog = console.log;
+    console.log = (...arguments_: unknown[]) => {
+      loggedLines.push(arguments_.map(String).join(" "));
+    };
+
+    try {
+      const activePortPath = path.join(directory, "DevToolsActivePort");
+      const fakeProcessHandlers = createFakeProcessHandlers();
+      const remoteDebuggingValues: boolean[] = [];
+      let resolveElectronExit: (exitCode: number) => void = () => {};
+      const electronExited = new Promise<number>((resolve) => {
+        resolveElectronExit = resolve;
+      });
+
+      const lifecycle = runElectronEffect(
+        runElectronDevLifecycleEffect({
+          buildBundles: () => Effect.void,
+          devToolsActivePortPath: activePortPath,
+          electronExecutablePath: "/repo/node_modules/electron/dist/Electron",
+          processHandlers: fakeProcessHandlers.processHandlers,
+          renderer: createFakeRenderer(),
+          startElectronProcess: (_rendererDevUrl, _executablePath, remoteDebugging) => {
+            remoteDebuggingValues.push(remoteDebugging);
+            void writeFile(activePortPath, "45678\n/devtools/browser/example\n");
+            void (async () => {
+              for (
+                let attempt = 0;
+                attempt < 50 && !loggedLines.includes(endpointLine);
+                attempt += 1
+              ) {
+                await new Promise((resolve) => setTimeout(resolve, 10));
+              }
+              resolveElectronExit(0);
+            })();
+            return {
+              exited: electronExited,
+              kill() {},
+            };
+          },
+        }),
+      );
+
+      expect(await lifecycle).toBe(0);
+      expect(remoteDebuggingValues).toEqual([true]);
+      expect(loggedLines).toContain(endpointLine);
+    } finally {
+      console.log = originalConsoleLog;
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("cancels the CDP port wait when Electron exits before writing the port file", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "odt-electron-cdp-"));
+    const loggedLines: string[] = [];
+    const originalConsoleLog = console.log;
+    console.log = (...arguments_: unknown[]) => {
+      loggedLines.push(arguments_.map(String).join(" "));
+    };
+
+    try {
+      const activePortPath = path.join(directory, "DevToolsActivePort");
+      const fakeProcessHandlers = createFakeProcessHandlers();
+
+      const exitCode = await runElectronEffect(
+        runElectronDevLifecycleEffect({
+          buildBundles: () => Effect.void,
+          devToolsActivePortPath: activePortPath,
+          electronExecutablePath: "/repo/node_modules/electron/dist/Electron",
+          processHandlers: fakeProcessHandlers.processHandlers,
+          renderer: createFakeRenderer(),
+          startElectronProcess: () => ({
+            exited: Promise.resolve(0),
+            kill() {},
+          }),
+        }),
+      );
+
+      expect(exitCode).toBe(0);
+      await writeFile(activePortPath, "45678\n/devtools/browser/example\n");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(loggedLines.filter((line) => line.includes("CDP endpoint"))).toEqual([]);
+    } finally {
+      console.log = originalConsoleLog;
+      await rm(directory, { force: true, recursive: true });
+    }
   });
 
   test("cleans up Electron dev lifecycle resources when the Effect is interrupted", async () => {

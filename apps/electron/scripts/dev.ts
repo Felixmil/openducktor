@@ -607,6 +607,7 @@ export const runElectronDevLifecycleEffect = ({
   startElectronProcess = startElectron,
 }: ElectronDevLifecycleOptions): Effect.Effect<number, ElectronOperationErrorAggregate> =>
   Effect.async<number, ElectronOperationErrorAggregate>((resume) => {
+    let devToolsPortAbort: AbortController | null = null;
     let electron: ManagedElectronProcess | null = null;
     let shutdownStarted = false;
     let restarting = false;
@@ -665,6 +666,11 @@ export const runElectronDevLifecycleEffect = ({
       });
     };
 
+    const abortDevToolsPortWait = (): void => {
+      devToolsPortAbort?.abort();
+      devToolsPortAbort = null;
+    };
+
     const shutdownEffect = (
       exitCode: number,
     ): Effect.Effect<void, ElectronOperationErrorAggregate> =>
@@ -673,6 +679,7 @@ export const runElectronDevLifecycleEffect = ({
           return;
         }
         shutdownStarted = true;
+        abortDevToolsPortWait();
         if (restartTimer) {
           clearTimeout(restartTimer);
           restartTimer = null;
@@ -719,12 +726,14 @@ export const runElectronDevLifecycleEffect = ({
         if (shutdownStarted || settled) {
           return;
         }
+        abortDevToolsPortWait();
         const activePortPath = devToolsActivePortPath;
+        let devToolsPortWait: Promise<number | null> | null = null;
         if (activePortPath !== null) {
           yield* prepareDevToolsActivePortFileEffect(activePortPath);
+          devToolsPortAbort = new AbortController();
+          devToolsPortWait = waitForDevToolsActivePort(activePortPath, devToolsPortAbort.signal);
         }
-        const devToolsPortWait =
-          activePortPath === null ? null : waitForDevToolsActivePort(activePortPath);
         const nextElectron = yield* Effect.sync(() =>
           startElectronProcess(renderer.url, electronExecutablePath, devToolsPortWait !== null),
         );
@@ -733,6 +742,7 @@ export const runElectronDevLifecycleEffect = ({
           if (electron === nextElectron) {
             electron = null;
           }
+          abortDevToolsPortWait();
           if (!shutdownStarted && !restarting) {
             void runShutdown(exitCode);
           }
@@ -749,6 +759,9 @@ export const runElectronDevLifecycleEffect = ({
               cause,
             }),
         });
+        if (cdpPort === null) {
+          return;
+        }
         yield* Effect.sync(() => {
           console.log(electronDebugEndpointLogLine(cdpPort));
         });
@@ -855,6 +868,7 @@ export const runElectronDevLifecycleEffect = ({
         }
 
         shutdownStarted = true;
+        abortDevToolsPortWait();
         if (restartTimer) {
           clearTimeout(restartTimer);
           restartTimer = null;
