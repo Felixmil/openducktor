@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { OPENDUCKTOR_DEV_INSTANCE_ENV } from "@openducktor/contracts";
-import type { McpBridgeDiscoveryMode } from "@openducktor/host";
+import { createProcessEnvironment, type McpBridgeDiscoveryMode } from "@openducktor/host";
 import { Effect } from "effect";
 import { z } from "zod";
 import { parseBasePathEffect } from "./browser-url-validation";
@@ -92,22 +92,32 @@ type CommonWebLauncherHostBackendOptions = Omit<
   "mcpBridgeDiscoveryMode" | "processEnv"
 >;
 
+type WebLauncherDiscoverySelection =
+  | { developmentInstanceId: string; workspaceMode: true }
+  | { developmentInstanceId?: never; workspaceMode: false };
+
 export type WebLauncherHostBackendOptions = CommonWebLauncherHostBackendOptions &
-  (
-    | { developmentInstanceId: string; workspaceMode: true }
-    | { developmentInstanceId?: never; workspaceMode: false }
-  );
+  WebLauncherDiscoverySelection;
+
+export const buildWebLauncherBaseEnv = (
+  options: WebLauncherDiscoverySelection,
+  processEnv: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv =>
+  options.workspaceMode
+    ? { ...processEnv, [OPENDUCKTOR_DEV_INSTANCE_ENV]: options.developmentInstanceId }
+    : { ...processEnv };
 
 export const startWebLauncherHostBackendEffect = ({
   developmentInstanceId,
   workspaceMode,
-  ...options
+  ...hostOptions
 }: WebLauncherHostBackendOptions) => {
-  const processEnv = workspaceMode
-    ? { ...process.env, [OPENDUCKTOR_DEV_INSTANCE_ENV]: developmentInstanceId }
-    : process.env;
+  const selection: WebLauncherDiscoverySelection = workspaceMode
+    ? { developmentInstanceId, workspaceMode: true }
+    : { workspaceMode: false };
+  const processEnv = createProcessEnvironment({ baseEnv: buildWebLauncherBaseEnv(selection) });
   return startTypescriptHostBackendEffect({
-    ...options,
+    ...hostOptions,
     mcpBridgeDiscoveryMode: resolveWebMcpBridgeDiscoveryMode(workspaceMode),
     processEnv,
   });

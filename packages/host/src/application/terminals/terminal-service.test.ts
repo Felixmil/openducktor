@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, test } from "bun:test";
-import { posix } from "node:path";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, posix } from "node:path";
 import type { TerminalServerMessage } from "@openducktor/contracts";
 import { Effect } from "effect";
 import { createTerminalLaunchEnvironment } from "../../infrastructure/terminals/terminal-launch-environment";
@@ -96,12 +98,35 @@ const makeTitleSettlementScheduler = () => {
   };
 };
 
+let fakeShellRoot: string | null = null;
+let fakeShellPath: string | null = null;
+const resolveFakeShellPath = async (): Promise<string> => {
+  if (fakeShellPath !== null) {
+    return fakeShellPath;
+  }
+
+  const root = await mkdtemp(join(tmpdir(), "odt-terminal-service-"));
+  const shellPath = join(root, "sh");
+  await writeFile(shellPath, "#!/bin/sh\n");
+  await chmod(shellPath, 0o755);
+  fakeShellRoot = root;
+  fakeShellPath = shellPath;
+  return shellPath;
+};
+
+afterAll(async () => {
+  if (fakeShellRoot !== null) {
+    await rm(fakeShellRoot, { force: true, recursive: true });
+  }
+});
+
 const makeService = async (
   pty = makePty(),
   idFactory: () => string = () => "terminal-1",
   filesystemPort: FilesystemPort = filesystem,
 ) => {
   const titleSettlement = makeTitleSettlementScheduler();
+  const shellPath = await resolveFakeShellPath();
   return {
     pty,
     settleTitles: titleSettlement.flush,
@@ -110,8 +135,9 @@ const makeService = async (
         filesystem: filesystemPort,
         ptyPort: pty.port,
         resolveLaunchEnvironment: createTerminalLaunchEnvironment({
-          processEnv: { SHELL: "/bin/zsh", PATH: "/usr/bin" },
+          processEnv: { PATH: "/usr/bin" },
           platform: "darwin",
+          readUserShell: () => shellPath,
         }),
         idFactory,
         hostInstanceIdFactory: () => "host-1",

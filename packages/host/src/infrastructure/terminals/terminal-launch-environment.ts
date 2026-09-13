@@ -1,38 +1,52 @@
-import { userInfo } from "node:os";
 import { isAbsolute } from "node:path";
 import { Effect } from "effect";
 import type { TerminalLaunchEnvironmentPort } from "../../application/terminals/terminal-launch-policy";
 import { TerminalServiceError } from "../../application/terminals/terminal-service-error";
-import { sanitizeChildProcessEnvironment } from "../process/process-environment";
+import {
+  accountUserShell,
+  type ReadUserShell,
+  resolveUserLoginShell,
+  sanitizeChildProcessEnvironment,
+} from "../process/process-environment";
 
 type TerminalLaunchEnvironmentInput = {
   processEnv: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
-  readUserShell?: () => string | null;
+  readUserShell?: ReadUserShell;
 };
 
-const accountShell = (): string | null => {
-  try {
-    return userInfo().shell || null;
-  } catch {
-    return null;
+const resolveTerminalShell = ({
+  environment,
+  platform,
+  readUserShell,
+}: {
+  environment: NodeJS.ProcessEnv;
+  platform: NodeJS.Platform;
+  readUserShell: ReadUserShell;
+}): string | null => {
+  if (platform === "win32") {
+    const configuredShell = environment.ComSpec ?? environment.COMSPEC;
+    if (configuredShell && isAbsolute(configuredShell)) {
+      return configuredShell;
+    }
+    const accountShell = readUserShell();
+    return accountShell && isAbsolute(accountShell) ? accountShell : null;
   }
+
+  return resolveUserLoginShell(environment, readUserShell);
 };
 
 export const createTerminalLaunchEnvironment =
   ({
     processEnv,
     platform = process.platform,
-    readUserShell = accountShell,
+    readUserShell = accountUserShell,
   }: TerminalLaunchEnvironmentInput): TerminalLaunchEnvironmentPort =>
   () =>
     Effect.gen(function* () {
       const environment = sanitizeChildProcessEnvironment(processEnv, platform);
-      const configuredShell =
-        platform === "win32" ? (environment.ComSpec ?? environment.COMSPEC) : environment.SHELL;
-      const shell =
-        configuredShell && isAbsolute(configuredShell) ? configuredShell : readUserShell();
-      if (!shell || !isAbsolute(shell)) {
+      const shell = resolveTerminalShell({ environment, platform, readUserShell });
+      if (!shell) {
         return yield* new TerminalServiceError({
           code: "shell_unavailable",
           operation: "create",
@@ -46,6 +60,7 @@ export const createTerminalLaunchEnvironment =
         }
       }
       if (platform !== "win32") {
+        env.SHELL = shell;
         env.TERM = "xterm-256color";
         env.COLORTERM = "truecolor";
       }

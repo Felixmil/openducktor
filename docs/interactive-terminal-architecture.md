@@ -18,7 +18,7 @@ Create, list, close, and path setup use host commands. Input, resize, attach, de
 
 `workingDir` is required. The host makes it canonical, checks that it is an accessible directory, and saves it as `initialWorkingDir`. Later `cd` commands do not change that field.
 
-The host selects the shell, arguments, and clean child environment. The renderer cannot choose an executable, arguments, or environment variables. On Unix, use the login shell with `TERM=xterm-256color` and `COLORTERM=truecolor`.
+The host selects the shell, arguments, and clean child environment. The renderer cannot choose an executable, arguments, or environment variables. On Unix, use the login shell from the user account. If it is not available, use the `SHELL` environment variable. Run the shell with `TERM=xterm-256color` and `COLORTERM=truecolor`.
 
 A terminal can have no task or have `repoPath` and `taskId`. The host uses this context for lists, limits, and cleanup. It does not restrict file access inside the shell.
 

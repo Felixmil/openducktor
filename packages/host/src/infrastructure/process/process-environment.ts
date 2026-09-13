@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { accessSync, constants } from "node:fs";
 import { userInfo } from "node:os";
 import { basename, delimiter, isAbsolute } from "node:path";
 
@@ -19,10 +20,13 @@ const HOST_CONTROL_ENV_NAMES = [
   "OPENDUCKTOR_APP_TOKEN",
 ] as const;
 
+export type ReadUserShell = () => string | null;
+
 export type CreateProcessEnvironmentInput = {
   baseEnv?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   readLoginShellPath?: (env: NodeJS.ProcessEnv) => string | null;
+  readUserShell?: ReadUserShell;
 };
 
 const isPathKey = (key: string): boolean => key.toLowerCase() === "path";
@@ -130,18 +134,40 @@ const setPathEnvironmentValue = (
   env.PATH = value;
 };
 
-const currentUserShell = (env: NodeJS.ProcessEnv): string | null => {
-  const shell = env.SHELL;
-  if (shell && isAbsolute(shell)) {
-    return shell;
-  }
-
+export const accountUserShell = (): string | null => {
   try {
-    const userShell = userInfo().shell;
-    return userShell && isAbsolute(userShell) ? userShell : null;
+    return userInfo().shell || null;
   } catch {
     return null;
   }
+};
+
+const NON_INTERACTIVE_SHELL_NAMES = new Set(["nologin", "false"]);
+
+const isUsableLoginShell = (shell: string): boolean => {
+  if (!isAbsolute(shell) || NON_INTERACTIVE_SHELL_NAMES.has(basename(shell))) {
+    return false;
+  }
+
+  try {
+    accessSync(shell, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+export const resolveUserLoginShell = (
+  env: NodeJS.ProcessEnv,
+  readUserShell: ReadUserShell = accountUserShell,
+): string | null => {
+  const accountShell = readUserShell();
+  if (accountShell && isUsableLoginShell(accountShell)) {
+    return accountShell;
+  }
+
+  const shell = env.SHELL;
+  return shell && isUsableLoginShell(shell) ? shell : null;
 };
 
 const minimalLoginShellEnv = (env: NodeJS.ProcessEnv, shell: string): NodeJS.ProcessEnv => ({
@@ -179,12 +205,7 @@ const parsePathFromLoginShellOutput = (stdout: Buffer): string | null => {
   return null;
 };
 
-const readCurrentUserLoginShellPath = (env: NodeJS.ProcessEnv = process.env): string | null => {
-  const shell = currentUserShell(env);
-  if (!shell) {
-    return null;
-  }
-
+const readCurrentUserLoginShellPath = (env: NodeJS.ProcessEnv, shell: string): string | null => {
   const result = spawnSync(shell, buildLoginShellPathProbeArgs(), {
     argv0: `-${basename(shell)}`,
     env: minimalLoginShellEnv(env, shell),
@@ -200,17 +221,31 @@ const readCurrentUserLoginShellPath = (env: NodeJS.ProcessEnv = process.env): st
   return parsePathFromLoginShellOutput(result.stdout);
 };
 
-export const createProcessEnvironment = ({
-  baseEnv = process.env,
-  platform = process.platform,
-  readLoginShellPath = readCurrentUserLoginShellPath,
-}: CreateProcessEnvironmentInput = {}): NodeJS.ProcessEnv => {
+export const createProcessEnvironment = (
+  input: CreateProcessEnvironmentInput = {},
+): NodeJS.ProcessEnv => {
+  const {
+    baseEnv = process.env,
+    platform = process.platform,
+    readUserShell = accountUserShell,
+    readLoginShellPath,
+  } = input;
   const env = normalizeProcessEnvironment(baseEnv, platform);
   if (platform === "win32") {
     return env;
   }
 
-  const loginShellPath = readLoginShellPath(env);
+  const shell = resolveUserLoginShell(env, readUserShell);
+  if (shell) {
+    env.SHELL = shell;
+  }
+
+  let loginShellPath: string | null = null;
+  if (readLoginShellPath) {
+    loginShellPath = readLoginShellPath(env);
+  } else if (shell) {
+    loginShellPath = readCurrentUserLoginShellPath(env, shell);
+  }
   if (loginShellPath) {
     setPathEnvironmentValue(
       env,
