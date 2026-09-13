@@ -19,6 +19,7 @@ import {
   causeToElectronBoundaryError,
   ElectronOperationError,
   type ElectronOperationErrorAggregate,
+  ElectronValidationError,
   type ElectronValidationErrorAggregate,
   errorMessage,
   toElectronOperationError,
@@ -760,6 +761,14 @@ export const runElectronDevLifecycleEffect = ({
             }),
         });
         if (cdpPort === null) {
+          if (!shutdownStarted && restarting) {
+            return yield* Effect.fail(
+              toElectronOperationError(
+                new Error("Electron exited before it published the CDP port."),
+                "electron.dev.wait-for-cdp-port",
+              ),
+            );
+          }
           return;
         }
         yield* Effect.sync(() => {
@@ -932,7 +941,15 @@ export const mainEffect = (): Effect.Effect<
         }),
     });
     const devToolsActivePortPath = shouldEnableRemoteDebugging(process.argv)
-      ? resolveDevToolsActivePortPath(developmentInstanceId)
+      ? yield* Effect.try({
+          try: () => resolveDevToolsActivePortPath(developmentInstanceId),
+          catch: (cause) =>
+            new ElectronValidationError({
+              operation: "electron.dev.resolve-devtools-active-port-path",
+              message: errorMessage(cause),
+              cause,
+            }),
+        })
       : null;
     const electronExecutablePath =
       yield* resolveElectronDevExecutablePathEffect(developmentInstanceId);

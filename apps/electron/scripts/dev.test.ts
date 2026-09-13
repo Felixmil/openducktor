@@ -10,6 +10,7 @@ import type {
 import { runElectronEffect } from "../src/effect/electron-boundary";
 import { ElectronOperationError } from "../src/effect/electron-errors";
 import {
+  ELECTRON_RESTART_WATCH_ROOTS,
   type ElectronDevProcessHandlers,
   electronDebugEndpointLogLine,
   electronDevServerLogLines,
@@ -557,6 +558,107 @@ describe("electron dev script", () => {
     } finally {
       console.log = originalConsoleLog;
       await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("fails the restart when the replacement Electron exits before it writes the CDP port file", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "odt-electron-cdp-"));
+    try {
+      const activePortPath = path.join(directory, "DevToolsActivePort");
+      const fakeProcessHandlers = createFakeProcessHandlers();
+      const changeListeners: Array<(filePath: string) => void> = [];
+      const watcher: ElectronDevRendererWatcher = {
+        add() {
+          return watcher;
+        },
+        on(event, listener) {
+          if (event === "change") {
+            changeListeners.push(listener);
+          }
+          return watcher;
+        },
+      };
+      const remoteDebuggingValues: boolean[] = [];
+      let killCalls = 0;
+      let resolveInitialExit: (exitCode: number) => void = () => {};
+      const initialExited = new Promise<number>((resolve) => {
+        resolveInitialExit = resolve;
+      });
+
+      const lifecycle = runElectronEffect(
+        runElectronDevLifecycleEffect({
+          buildBundles: () => Effect.void,
+          devToolsActivePortPath: activePortPath,
+          electronExecutablePath: "/repo/node_modules/electron/dist/Electron",
+          processHandlers: fakeProcessHandlers.processHandlers,
+          renderer: createFakeRenderer({ watcher }),
+          startElectronProcess: (_rendererDevUrl, _executablePath, remoteDebugging) => {
+            const launchIndex = remoteDebuggingValues.length;
+            remoteDebuggingValues.push(remoteDebugging);
+            if (launchIndex === 0) {
+              void writeFile(activePortPath, "45678\n/devtools/browser/example\n");
+              return {
+                exited: initialExited,
+                kill() {
+                  killCalls += 1;
+                  resolveInitialExit(0);
+                },
+              };
+            }
+            return {
+              exited: Promise.resolve(0),
+              kill() {},
+            };
+          },
+        }),
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const changeListener = changeListeners[0];
+      if (!changeListener) {
+        throw new Error("Expected the lifecycle to register a watcher change listener.");
+      }
+      changeListener(path.join(ELECTRON_RESTART_WATCH_ROOTS[0], "main.ts"));
+
+      expect(await lifecycle).toBe(1);
+      expect(remoteDebuggingValues).toEqual([true, true]);
+      expect(killCalls).toBe(1);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("keeps an invalid config directory in the main Effect failure channel for CDP mode", async () => {
+    const originalConfigDir = process.env.OPENDUCKTOR_CONFIG_DIR;
+    const originalArgv = process.argv;
+    process.env.OPENDUCKTOR_CONFIG_DIR = "   ";
+    process.argv = ["bun", "scripts/dev.ts", "--cdp"];
+
+    try {
+      const exit = await Effect.runPromiseExit(mainEffect());
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (!Exit.isFailure(exit)) {
+        throw new Error("Expected mainEffect to fail for an invalid config directory.");
+      }
+
+      const failureOption = Chunk.head(Cause.failures(exit.cause));
+      expect(failureOption._tag).toBe("Some");
+      if (failureOption._tag !== "Some") {
+        throw new Error("Expected the config failure in the typed error channel.");
+      }
+
+      expect(failureOption.value).toMatchObject({
+        _tag: "ElectronValidationError",
+        operation: "electron.dev.resolve-devtools-active-port-path",
+      });
+      expect(Chunk.isEmpty(Cause.defects(exit.cause))).toBe(true);
+    } finally {
+      process.argv = originalArgv;
+      if (originalConfigDir === undefined) {
+        delete process.env.OPENDUCKTOR_CONFIG_DIR;
+      } else {
+        process.env.OPENDUCKTOR_CONFIG_DIR = originalConfigDir;
+      }
     }
   });
 
