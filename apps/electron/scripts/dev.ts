@@ -19,6 +19,7 @@ import {
   causeToElectronBoundaryError,
   ElectronOperationError,
   type ElectronOperationErrorAggregate,
+  ElectronValidationError,
   type ElectronValidationErrorAggregate,
   errorMessage,
   toElectronOperationError,
@@ -27,6 +28,12 @@ import {
   copySqliteTaskStoreMigrationsEffect,
   resolveSqliteTaskStoreMigrationCopyPlan,
 } from "./build";
+import {
+  DEVTOOLS_ACTIVE_PORT_RECOVERY_STEP,
+  prepareDevToolsActivePortFileEffect,
+  resolveDevToolsActivePortPath,
+  waitForDevToolsActivePort,
+} from "./devtools-active-port";
 
 export type ManagedElectronProcess = {
   readonly exited: Promise<number>;
@@ -197,6 +204,9 @@ const isWithinDirectory = (directory: string, candidate: string): boolean => {
 export const resolveRendererDevPort = (rawPort: string | undefined): number => {
   return resolveRendererDevPortFromConfig(rawPort, "electron.dev.resolve-renderer-dev-port");
 };
+
+export const shouldEnableRemoteDebugging = (argv: readonly string[]): boolean =>
+  argv.includes("--cdp");
 
 export const shouldRestartElectronForChange = (
   filePath: string,
@@ -483,6 +493,18 @@ export const electronDevServerLogLines = (
   `[electron:dev] Renderer URL: ${rendererDevUrl}`,
 ];
 
+export const electronDebugEndpointLogLine = (cdpPort: number): string =>
+  `[electron:dev] CDP endpoint: http://127.0.0.1:${cdpPort}`;
+
+export const electronLaunchArgs = (
+  electronExecutablePath: string,
+  remoteDebugging: boolean,
+): string[] => [
+  electronExecutablePath,
+  ...(remoteDebugging ? ["--remote-debugging-port=0"] : []),
+  "dist/main.js",
+];
+
 export const electronRuntimeEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
   const { ELECTRON_RUN_AS_NODE: _electronRunAsNode, ...runtimeEnv } = env;
   return runtimeEnv;
@@ -494,8 +516,9 @@ export const electronGracefulShutdownSignal = (platform: NodeJS.Platform): NodeJ
 const startElectron = (
   rendererDevUrl: string,
   electronExecutablePath: string,
+  remoteDebugging: boolean,
 ): ManagedElectronProcess =>
-  Bun.spawn([electronExecutablePath, "dist/main.js"], {
+  Bun.spawn(electronLaunchArgs(electronExecutablePath, remoteDebugging), {
     cwd: packageRoot,
     detached: process.platform !== "win32",
     stdout: "inherit",
@@ -549,6 +572,7 @@ export const stopElectronEffect = (
 type StartElectronProcess = (
   rendererDevUrl: string,
   electronExecutablePath: string,
+  remoteDebugging: boolean,
 ) => ManagedElectronProcess;
 
 type ElectronDevProcessEvent = "SIGINT" | "SIGTERM" | "exit";
@@ -569,25 +593,40 @@ const defaultElectronDevProcessHandlers: ElectronDevProcessHandlers = {
 
 type ElectronDevLifecycleOptions = {
   buildBundles?: () => Effect.Effect<void, ElectronOperationErrorAggregate>;
+  devToolsActivePortPath?: string | null;
   electronExecutablePath: string;
+  prepareDevToolsPortFile?: (
+    activePortPath: string,
+  ) => Effect.Effect<void, ElectronOperationErrorAggregate>;
   processHandlers?: ElectronDevProcessHandlers;
   renderer: ElectronRendererDevServer;
   startElectronProcess?: StartElectronProcess;
 };
 
+type DevToolsPortWait = {
+  readonly controller: AbortController;
+  readonly promise: Promise<number | null>;
+  exitCodeBeforePublish: number | null;
+};
+
 export const runElectronDevLifecycleEffect = ({
   buildBundles = buildElectronBundlesEffect,
+  devToolsActivePortPath = null,
   electronExecutablePath,
+  prepareDevToolsPortFile = prepareDevToolsActivePortFileEffect,
   processHandlers = defaultElectronDevProcessHandlers,
   renderer,
   startElectronProcess = startElectron,
 }: ElectronDevLifecycleOptions): Effect.Effect<number, ElectronOperationErrorAggregate> =>
   Effect.async<number, ElectronOperationErrorAggregate>((resume) => {
+    let devToolsPortWait: DevToolsPortWait | null = null;
+    let pendingElectronExitCode: number | null = null;
     let electron: ManagedElectronProcess | null = null;
     let shutdownStarted = false;
     let restarting = false;
     let restartQueued = false;
     let restartTimer: ReturnType<typeof setTimeout> | null = null;
+    let launchGeneration = 0;
     const registeredProcessHandlers: Array<{
       event: ElectronDevProcessEvent;
       listener: () => void;
@@ -641,6 +680,24 @@ export const runElectronDevLifecycleEffect = ({
       });
     };
 
+    const failLifecycleAfterStoppingElectron = (cause: unknown): void => {
+      const failure = toElectronOperationError(cause, "electron.dev.lifecycle");
+      void Effect.runPromiseExit(stopElectronEffect(electron)).then((stopExit) => {
+        if (Exit.isFailure(stopExit)) {
+          console.error(
+            "[electron:dev] Electron shutdown after lifecycle failure failed.",
+            causeToElectronBoundaryError(stopExit.cause),
+          );
+        }
+        settle(Effect.fail(failure), { keepExitHandler: true });
+      });
+    };
+
+    const abortDevToolsPortWait = (): void => {
+      devToolsPortWait?.controller.abort();
+      devToolsPortWait = null;
+    };
+
     const shutdownEffect = (
       exitCode: number,
     ): Effect.Effect<void, ElectronOperationErrorAggregate> =>
@@ -649,6 +706,7 @@ export const runElectronDevLifecycleEffect = ({
           return;
         }
         shutdownStarted = true;
+        abortDevToolsPortWait();
         if (restartTimer) {
           clearTimeout(restartTimer);
           restartTimer = null;
@@ -691,22 +749,88 @@ export const runElectronDevLifecycleEffect = ({
         if (shutdownStarted || settled) {
           return;
         }
+        const generation = launchGeneration + 1;
+        launchGeneration = generation;
         yield* buildBundles();
-        if (shutdownStarted || settled) {
+        if (generation !== launchGeneration || shutdownStarted || settled) {
           return;
         }
+        abortDevToolsPortWait();
+        const activePortPath = devToolsActivePortPath;
+        if (activePortPath !== null) {
+          yield* prepareDevToolsPortFile(activePortPath);
+          if (generation !== launchGeneration || shutdownStarted || settled) {
+            return;
+          }
+          const controller = new AbortController();
+          devToolsPortWait = {
+            controller,
+            exitCodeBeforePublish: null,
+            promise: waitForDevToolsActivePort(activePortPath, controller.signal),
+          };
+        }
         const nextElectron = yield* Effect.sync(() =>
-          startElectronProcess(renderer.url, electronExecutablePath),
+          startElectronProcess(renderer.url, electronExecutablePath, devToolsPortWait !== null),
         );
         electron = nextElectron;
         void nextElectron.exited.then((exitCode) => {
-          if (electron === nextElectron) {
-            electron = null;
+          if (electron !== nextElectron) {
+            return;
           }
-          if (!shutdownStarted && !restarting) {
-            void runShutdown(exitCode);
+          electron = null;
+          pendingElectronExitCode = exitCode;
+          const pendingWait = devToolsPortWait;
+          if (pendingWait !== null) {
+            pendingWait.exitCodeBeforePublish = exitCode;
+            abortDevToolsPortWait();
           }
+          if (shutdownStarted || restarting || pendingWait !== null) {
+            return;
+          }
+          void runShutdown(exitCode);
         });
+        const portWait = devToolsPortWait;
+        if (portWait === null) {
+          return;
+        }
+        const cdpPort = yield* Effect.tryPromise({
+          try: () => portWait.promise,
+          catch: (cause) =>
+            new ElectronOperationError({
+              operation: "electron.dev.wait-for-cdp-port",
+              message: errorMessage(cause),
+              cause,
+            }),
+        });
+        if (generation !== launchGeneration || shutdownStarted || settled) {
+          return;
+        }
+        if (cdpPort === null) {
+          const exitCodeBeforePublish = portWait.exitCodeBeforePublish;
+          if (exitCodeBeforePublish !== null && !shutdownStarted && !settled) {
+            return yield* Effect.fail(
+              toElectronOperationError(
+                new Error(
+                  `Electron exited with code ${exitCodeBeforePublish} before it published the CDP port. ${DEVTOOLS_ACTIVE_PORT_RECOVERY_STEP}`,
+                ),
+                "electron.dev.wait-for-cdp-port",
+              ),
+            );
+          }
+          return;
+        }
+        devToolsPortWait = null;
+        yield* Effect.sync(() => {
+          console.log(electronDebugEndpointLogLine(cdpPort));
+        });
+        if (
+          generation === launchGeneration &&
+          !shutdownStarted &&
+          electron === null &&
+          pendingElectronExitCode !== null
+        ) {
+          void runShutdown(pendingElectronExitCode);
+        }
       });
 
     const restartElectronEffect = (): Effect.Effect<void, ElectronOperationErrorAggregate> =>
@@ -727,6 +851,7 @@ export const runElectronDevLifecycleEffect = ({
               console.log(
                 "[electron:dev] Restarting Electron after main-process dependency change...",
               );
+              abortDevToolsPortWait();
               yield* stopElectronEffect(electron);
               yield* launchElectronEffect();
             }),
@@ -749,6 +874,9 @@ export const runElectronDevLifecycleEffect = ({
         yield* Effect.sync(() => {
           restarting = false;
         });
+        if (!shutdownStarted && electron === null && pendingElectronExitCode !== null) {
+          void runShutdown(pendingElectronExitCode);
+        }
       });
 
     const scheduleRestart = (): void => {
@@ -810,6 +938,7 @@ export const runElectronDevLifecycleEffect = ({
         }
 
         shutdownStarted = true;
+        abortDevToolsPortWait();
         if (restartTimer) {
           clearTimeout(restartTimer);
           restartTimer = null;
@@ -847,7 +976,7 @@ export const runElectronDevLifecycleEffect = ({
         yield* registerProcessHandlersEffect();
         yield* launchElectronEffect();
       }),
-      completeFailure,
+      failLifecycleAfterStoppingElectron,
     );
 
     return interruptCleanupEffect();
@@ -872,6 +1001,17 @@ export const mainEffect = (): Effect.Effect<
           path: workspaceRoot,
         }),
     });
+    const devToolsActivePortPath = shouldEnableRemoteDebugging(process.argv)
+      ? yield* Effect.try({
+          try: () => resolveDevToolsActivePortPath(developmentInstanceId),
+          catch: (cause) =>
+            new ElectronValidationError({
+              operation: "electron.dev.resolve-devtools-active-port-path",
+              message: errorMessage(cause),
+              cause,
+            }),
+        })
+      : null;
     const electronExecutablePath =
       yield* resolveElectronDevExecutablePathEffect(developmentInstanceId);
     const renderer = yield* createElectronRendererDevServerEffect({
@@ -887,6 +1027,7 @@ export const mainEffect = (): Effect.Effect<
             }
           });
           return yield* runElectronDevLifecycleEffect({
+            devToolsActivePortPath,
             electronExecutablePath,
             renderer,
           });
