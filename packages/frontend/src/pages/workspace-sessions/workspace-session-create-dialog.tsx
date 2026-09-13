@@ -3,13 +3,15 @@ import {
   type WorkspaceSession,
   type WorkspaceSessionCreateInput,
   type WorkspaceSessionWorktreeInput,
-  workspaceSessionWorktreeInputSchema,
 } from "@openducktor/contracts";
-import { HostInvokeError } from "@openducktor/host-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Folder, GitBranch, LoaderCircle } from "lucide-react";
 import { type ReactElement, useState } from "react";
-import { ModelPicker } from "@/components/features/agents/model-picker";
+import { WorkspaceSessionModelFields } from "./workspace-session-model-fields";
+import {
+  buildWorkspaceSessionCreateInput,
+  workspaceSessionValidationError,
+} from "./workspace-session-create-input";
 import { SettingsModal } from "@/components/features/settings/settings-modal";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
@@ -60,22 +62,10 @@ export function WorkspaceSessionCreateDialog({
     name: "",
     branchName: null,
   });
-  const parsedWorktree = workspaceSessionWorktreeInputSchema.safeParse(worktree);
   const branches = useQuery({
     ...repoBranchesQueryOptions(workspace.repoPath),
     enabled: location === "local_worktree" && worktree.mode === "from_branch",
   });
-  const selectedBranch = branches.data?.find(
-    (branch) => !branch.isRemote && branch.name === worktree.branchName,
-  );
-  const worktreeValid =
-    location === "local_repo_root" ||
-    (parsedWorktree.success &&
-      (worktree.mode === "from_name" ||
-        (!branches.isPending &&
-          !branches.isError &&
-          selectedBranch &&
-          !selectedBranch.worktreePath)));
   const mounted = useMountedRef();
   const create = useMutation({
     mutationFn: (input: WorkspaceSessionCreateInput) => host.workspaceSessionCreate(input),
@@ -86,32 +76,24 @@ export function WorkspaceSessionCreateDialog({
       if (mounted.current) onCreated(result.session);
     },
     onError: (error) => {
-      if (
-        error instanceof HostInvokeError &&
-        error.failure?.kind === "workspace_session_validation"
-      )
+      if (workspaceSessionValidationError(error))
         void invalidateRepoBranchesQuery(queryClient, workspace.repoPath);
     },
   });
-  const worktreeError =
-    create.error instanceof HostInvokeError &&
-    create.error.failure?.kind === "workspace_session_validation"
-      ? { field: create.error.failure.field, message: create.error.message }
-      : null;
+  const worktreeError = workspaceSessionValidationError(create.error);
+  const input = buildWorkspaceSessionCreateInput({
+    workspaceId: workspace.workspaceId,
+    name,
+    roleId,
+    location,
+    worktree,
+    selection: model.selection,
+    selectedModelAvailable: Boolean(model.selectedModelEntry),
+    rolesReady: roles.isSuccess,
+    availableBranches: branches.isSuccess ? branches.data : null,
+  });
   const submit = () => {
-    const selection = model.selection;
-    if (!selection?.runtimeKind || create.isPending || !worktreeValid) return;
-    const input: WorkspaceSessionCreateInput = {
-      workspaceId: workspace.workspaceId,
-      runtimeKind: selection.runtimeKind,
-      selectedModel: { ...selection, runtimeKind: selection.runtimeKind },
-      customAgentRoleId: roleId === "none" ? null : roleId,
-      location,
-      manualTitle: name,
-    };
-    if (location === "local_worktree" && parsedWorktree.success)
-      input.worktree = parsedWorktree.data;
-    create.mutate(input);
+    if (!create.isPending && input) create.mutate(input);
   };
   return (
     <Dialog
@@ -147,44 +129,7 @@ export function WorkspaceSessionCreateDialog({
                   maxLength={WORKSPACE_SESSION_MANUAL_TITLE_LIMIT}
                 />
               </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="grid gap-1.5">
-                  <Label>Runtime and model</Label>
-                  <ModelPicker
-                    {...model.modelPicker}
-                    selectionPolicy={
-                      create.isPending
-                        ? { kind: "read_only", reason: "Creating chat." }
-                        : model.modelPicker.selectionPolicy
-                    }
-                    triggerClassName="w-full justify-between"
-                  />
-                </div>
-                <div className="grid gap-1.5">
-                  <Label id="workspace-session-effort">Effort</Label>
-                  <Combobox
-                    triggerAriaLabelledBy="workspace-session-effort"
-                    value={model.selection?.variant ?? ""}
-                    onValueChange={model.handleSelectVariant}
-                    options={model.variantOptions}
-                    disabled={create.isPending || model.variantOptions.length === 0}
-                    placeholder="Not supported"
-                  />
-                </div>
-              </div>
-              {model.supportsProfiles && (
-                <div className="grid gap-1.5">
-                  <Label id="workspace-session-profile">Runtime profile</Label>
-                  <Combobox
-                    triggerAriaLabelledBy="workspace-session-profile"
-                    value={model.selection?.profileId ?? ""}
-                    onValueChange={model.handleSelectAgentProfile}
-                    options={model.agentProfileOptions}
-                    disabled={create.isPending}
-                    placeholder="Runtime default"
-                  />
-                </div>
-              )}
+              <WorkspaceSessionModelFields model={model} disabled={create.isPending} />
               <div className="grid gap-1.5">
                 <Label id="workspace-session-role">
                   Custom role <span className="font-normal text-muted-foreground">optional</span>
@@ -288,17 +233,7 @@ export function WorkspaceSessionCreateDialog({
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancel
               </Button>
-              <Button
-                type="submit"
-                disabled={
-                  create.isPending ||
-                  !worktreeValid ||
-                  !model.selection ||
-                  !model.selectedModelEntry ||
-                  roles.isPending ||
-                  roles.isError
-                }
-              >
+              <Button type="submit" disabled={create.isPending || input === null}>
                 {create.isPending && <LoaderCircle className="animate-spin" />}
                 {create.isPending ? "Creating chat…" : "Create chat"}
               </Button>

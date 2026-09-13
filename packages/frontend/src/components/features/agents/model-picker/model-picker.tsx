@@ -1,3 +1,4 @@
+import { resolveModelPickerPresentation } from "./model-picker-presentation";
 import type { AgentModelFavorite, RuntimeKind } from "@openducktor/contracts";
 import type { AgentModelAttachmentSupport } from "@openducktor/core";
 import {
@@ -425,34 +426,16 @@ export function ModelPicker({
       }),
     [activeView, favoriteState.favorites, lockedRuntimeKind, runtimes, searchQuery],
   );
-  const selectedRuntime = runtimes.find(
-    (runtime) => runtime.descriptor.kind === value?.runtimeKind,
-  );
-  const selectedItem = runtimes
-    .flatMap((runtime) =>
-      (runtime.resource.catalog?.models ?? []).map((model) => ({ runtime, model })),
-    )
-    .find(
-      ({ runtime, model }) =>
-        runtime.descriptor.kind === value?.runtimeKind &&
-        model.providerId === value?.providerId &&
-        model.modelId === value?.modelId,
-    );
-  const triggerRuntime = selectedRuntime?.descriptor ?? null;
-  const triggerModelLabel = selectedItem?.model.modelName ?? value?.modelId ?? placeholder;
-  const triggerAriaLabel = triggerRuntime
-    ? `Select model, ${triggerRuntime.label}, ${triggerModelLabel}`
-    : `Select model, ${triggerModelLabel}`;
-  const visibleResources = runtimes.filter((runtime) => {
-    if (lockedRuntimeKind && runtime.descriptor.kind !== lockedRuntimeKind) {
-      return false;
-    }
-    if (searchQuery.trim() || activeView === "favorites") {
-      return true;
-    }
-    return runtime.descriptor.kind === activeView;
-  });
-  const activeRuntime = runtimes.find((runtime) => runtime.descriptor.kind === activeView) ?? null;
+  const { triggerRuntime, triggerModelLabel, triggerAriaLabel, visibleResources, emptyMessage } =
+    resolveModelPickerPresentation({
+      runtimes,
+      value,
+      placeholder,
+      activeView,
+      searchQuery,
+      favoriteState,
+      lockedRuntimeKind,
+    });
   const readOnlyReason = selectionPolicy.kind === "read_only" ? selectionPolicy.reason : null;
 
   const focusModelBoundary = (fromEnd: boolean): void => {
@@ -493,28 +476,6 @@ export function ModelPicker({
     setOpen(nextOpen);
     onOpenChange?.(nextOpen);
   };
-
-  const emptyMessage = (() => {
-    if (runtimes.length === 0) {
-      return "No agent runtimes are available.";
-    }
-    if (searchQuery.trim()) {
-      return "No models match your search.";
-    }
-    if (activeView === "favorites") {
-      if (favoriteState.isLoading) {
-        return "Loading favorites...";
-      }
-      if (favoriteState.readError) {
-        return "Favorites are unavailable until settings load succeeds.";
-      }
-      return "No favorite models are available here. Use a model row's star to add one.";
-    }
-    if (activeRuntime && activeRuntime.resource.status !== "ready") {
-      return null;
-    }
-    return `No ${activeRuntime?.descriptor.label ?? "runtime"} models are available.`;
-  })();
 
   let listContent: ReactElement | null = null;
   if (items.length > 0) {

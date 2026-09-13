@@ -15,6 +15,7 @@ import { waitFor } from "@testing-library/react";
 import { createAgentSessionsStore } from "@/state/agent-sessions-store";
 import { type AgentSessionReadPort, agentSessionQueryKeys } from "@/state/queries/agent-sessions";
 import { workspaceQueryKeys } from "@/state/queries/workspace";
+import { workspaceSessionQueryKeys } from "@/state/queries/workspace-sessions";
 import { summarizeAgentActivity } from "@/state/read-models/agent-activity-read-model";
 import { createHookHarness } from "@/test-utils/react-hook-harness";
 import {
@@ -218,6 +219,65 @@ const createRepositoryConflictRetryState = (
   });
 
 describe("useRepoSessionReadModel", () => {
+  test.each([false, true])(
+    "chat record failure does not block task observation, cached=%s",
+    async (cached) => {
+      let fail = true;
+      configureShellBridge(
+        createShellBridgeFixture({
+          client: {
+            workspaceSessionListActive: async () => {
+              if (fail) throw new Error("Chat records unavailable");
+              return [];
+            },
+          },
+          bridge: { subscribeWorkspaceSessionUpdates: async () => () => {} },
+        }),
+      );
+      const state = createState(
+        (emit) =>
+          emit({
+            type: "snapshot",
+            repoPath: "/repo",
+            sessions: [snapshot({ activity: "running" })],
+          }),
+        record,
+        {
+          agentSessionsList: async () => [record],
+          agentSessionsListForTasks: async () => [{ taskId: "task-1", agentSessions: [record] }],
+        },
+      );
+      state.props.workspaceId = "workspace-A";
+      const key = workspaceSessionQueryKeys.list("workspace-A", false);
+      if (cached) state.queryClient.setQueryData(key, []);
+      try {
+        await state.harness.mount();
+        if (cached) {
+          await state.harness.waitFor((value) => value.sessionReadModelLoadState.kind === "ready");
+          await state.harness.run(() => state.queryClient.invalidateQueries({ queryKey: key }));
+        }
+        await state.harness.waitFor((value) => value.workspaceSessionRecordsError !== null);
+        expect(state.harness.getLatest().sessionReadModelLoadState.kind).toBe("ready");
+        expect(state.getSession()?.status).toBe("running");
+        expect(state.observeAgentSessionLive).toHaveBeenCalledTimes(1);
+        fail = false;
+        await state.harness.run((value) => value.reloadSessionReadModel());
+        await state.harness.waitFor(
+          (value) =>
+            value.workspaceSessionRecordsError === null &&
+            value.sessionReadModelLoadState.kind === "ready",
+        );
+        expect(state.getSession()?.status).toBe("running");
+        expect(
+          state.observeAgentSessionLive.mock.calls.length - state.unsubscribe.mock.calls.length,
+        ).toBe(1);
+      } finally {
+        await state.harness.unmount();
+        state.queryClient.clear();
+        configureShellBridge(createUnavailableShellBridge());
+      }
+    },
+  );
   test("commits activity and child input before the transcript consumer runs", async () => {
     const root = snapshot();
     const child = snapshot({

@@ -37,6 +37,8 @@ type SettingsModalContentProps = {
   onContentFocusRequestHandled?: (request: SettingsContentFocusRequest) => void;
 };
 
+// This flat dispatcher keeps each Settings section in its existing component.
+// react-doctor-disable-next-line react-doctor/no-high-complexity-react-function
 export function SettingsModalContent({
   section,
   repositorySection,

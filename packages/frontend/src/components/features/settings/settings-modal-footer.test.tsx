@@ -34,6 +34,49 @@ const renderFooter = (overrides: Partial<Parameters<typeof SettingsModalFooter>[
 };
 
 describe("SettingsModalFooter", () => {
+  test.each([null, "Save failed"])(
+    "preserves message priority and independent query errors with save error %s",
+    (saveError) => {
+      const renderer = renderFooter({
+        location: { section: "runtimes", repositorySection: "configuration" },
+        validationSummary: {
+          promptPlaceholderErrorCount: 1,
+          customAgentRoleFieldErrorCount: 2,
+          reusablePromptFieldErrorCount: 3,
+          runtimeAvailabilityErrorCount: 4,
+          hasUnacknowledgedCodexDangerousSettings: true,
+          repoScriptFieldErrorCount: 5,
+        },
+        errors: {
+          saveError,
+          catalogError: "Catalog unavailable",
+          runtimeExecutablesError: "Check failed",
+        },
+      });
+      try {
+        expect(
+          screen.getByText("Runtime definitions unavailable: Catalog unavailable"),
+        ).toBeTruthy();
+        expect(screen.getByText("Runtime executable check failed: Check failed")).toBeTruthy();
+        expect(screen.getByRole("button", { name: "Save Settings" }).hasAttribute("disabled")).toBe(
+          true,
+        );
+        if (saveError) {
+          expect(screen.getByText(saveError)).toBeTruthy();
+          expect(screen.queryByText("2 custom role field errors.")).toBeNull();
+          expect(screen.queryByText("1 prompt placeholder error.")).toBeNull();
+        } else {
+          expect(screen.getByText("2 custom role field errors.")).toBeTruthy();
+          expect(screen.getByText("1 prompt placeholder error.")).toBeTruthy();
+        }
+        expect(screen.queryByText("3 reusable prompt field errors.")).toBeNull();
+        expect(screen.queryByText("5 dev server field errors.")).toBeNull();
+      } finally {
+        renderer.unmount();
+      }
+    },
+  );
+
   test("disables save and shows custom role field errors", () => {
     const renderer = renderFooter({
       validationSummary: {

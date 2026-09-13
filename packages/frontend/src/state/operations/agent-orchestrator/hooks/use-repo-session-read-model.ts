@@ -84,6 +84,7 @@ type UseRepoSessionReadModelArgs = {
 
 export type RepoSessionReadModelState = {
   sessionReadModelLoadState: AgentSessionReadModelLoadState;
+  workspaceSessionRecordsError: string | null;
   reloadSessionReadModel: () => void;
   getSessionFault: (session: AgentSessionIdentity | null) => AgentSessionTransientFault | null;
 };
@@ -164,6 +165,8 @@ export const useRepoSessionReadModel = ({
       const next = applyWorkspaceSessionRecords(current, records);
       return { collection: next, result: next };
     });
+    // Check durable target identity after the shared store commit, not during render.
+    // react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent
     updateWorkspaceTargetFaults(collection);
   }, [
     commitSessionCollection,
@@ -309,13 +312,17 @@ export const useRepoSessionReadModel = ({
     const retryFailureMessage = (cause: unknown): string =>
       `Failed to retry task session records for repo '${repoPath}': ${errorMessage(cause)}`;
     setSessionReadModelLoadState(loadingAgentSessionReadModelLoadState(repoPath));
+    // Query exposes the chat error separately. Wait for its result before the new snapshot,
+    // but do not classify a chat failure as a failed task-record retry.
     const workspaceRetry =
       workspaceId === null
         ? Promise.resolve()
-        : queryClient.fetchQuery({
-            ...workspaceSessionListQueryOptions(workspaceId),
-            staleTime: 0,
-          });
+        : queryClient
+            .fetchQuery({
+              ...workspaceSessionListQueryOptions(workspaceId),
+              staleTime: 0,
+            })
+            .catch(() => undefined);
     if (retriesApplyFailure) {
       void Promise.all([
         workspaceRetry,
@@ -402,7 +409,7 @@ export const useRepoSessionReadModel = ({
   const observedRepoPathRef = useRef<string | null>(null);
   const canObserveRepo =
     (taskRecords.kind === "ready" &&
-      (workspaceId === null || workspaceRecords.records.isSuccess)) ||
+      (workspaceId === null || !workspaceRecords.records.isPending)) ||
     observedRepoPathRef.current === workspaceRepoPath;
 
   // Synchronizes an async query lifecycle with the parent-owned session read model.
@@ -929,20 +936,13 @@ export const useRepoSessionReadModel = ({
 
   return useMemo(
     () => ({
-      sessionReadModelLoadState:
-        workspaceRecords.records.error && workspaceRepoPath && workspaceId !== null
-          ? failedAgentSessionReadModelLoadState(
-              workspaceRepoPath,
-              `Failed to load workspace session records: ${errorMessage(workspaceRecords.records.error)}`,
-              "task-records",
-            )
-          : workspaceRecords.subscriptionError && workspaceRepoPath
-            ? failedAgentSessionReadModelLoadState(
-                workspaceRepoPath,
-                workspaceRecords.subscriptionError,
-                "live-stream",
-              )
-            : currentSessionReadModelLoadState,
+      sessionReadModelLoadState: currentSessionReadModelLoadState,
+      workspaceSessionRecordsError:
+        workspaceId !== null && workspaceRepoPath
+          ? workspaceRecords.records.error
+            ? `Failed to load workspace session records: ${errorMessage(workspaceRecords.records.error)}`
+            : workspaceRecords.subscriptionError
+          : null,
       reloadSessionReadModel,
       getSessionFault,
     }),

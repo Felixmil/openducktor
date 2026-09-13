@@ -103,16 +103,16 @@ export function SettingsChatSection({
       <div className="flex flex-col gap-2">
         <h3 className="text-sm font-semibold text-foreground">Chat Settings</h3>
         <p className="text-xs text-muted-foreground">
-          Configure chat display behavior for task workflow sessions.
+          Configure display settings for Chats and Workflows.
         </p>
       </div>
 
       <ChatSettingSwitchRow
         title="Show Thinking Messages"
-        description="Thinking messages are hidden by default. When enabled, they will appear in task workflow transcripts after you save settings."
+        description="Thinking messages are hidden by default. When enabled, they will appear in Chats and Workflows transcripts after you save settings."
         checked={chat.showThinkingMessages}
         disabled={disabled}
-        ariaLabel="Show thinking messages in task workflow transcripts"
+        ariaLabel="Show thinking messages in Chats and Workflows transcripts"
         onCheckedChange={(checked) =>
           onUpdateChat((current) => ({ ...current, showThinkingMessages: checked }))
         }
@@ -120,10 +120,10 @@ export function SettingsChatSection({
 
       <ChatSettingSwitchRow
         title="Expand file diffs by default"
-        description="File diffs in task workflow transcripts will start expanded after you save settings."
+        description="File diffs in Chats and Workflows transcripts will start expanded after you save settings."
         checked={chat.expandFileDiffsByDefault}
         disabled={disabled}
-        ariaLabel="Expand file diffs by default in task workflow transcripts"
+        ariaLabel="Expand file diffs by default in Chats and Workflows transcripts"
         onCheckedChange={(checked) =>
           onUpdateChat((current) => ({ ...current, expandFileDiffsByDefault: checked }))
         }
@@ -131,7 +131,7 @@ export function SettingsChatSection({
 
       <SettingsSegmentedOptionRow<ChatDiffStyle>
         title="Diff Style"
-        description="Choose how file diffs are displayed in task workflow transcripts."
+        description="Choose how file diffs are displayed in Chats and Workflows transcripts."
         value={chat.diffStyle}
         options={diffStyleOptions}
         disabled={disabled}

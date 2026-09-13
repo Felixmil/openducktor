@@ -45,7 +45,7 @@ Rules:
 - Ignore replayed changes while a reconnect waits for its new snapshot.
 - Treat each later snapshot as a full collection reset.
 - Commit a snapshot once so rows, activity, pending input, context, and counters use the same state.
-- Per-task session-list queries own workflow records. Workspace session-list queries own repository records. Both baselines must load before the first live projection.
+- Per-task session-list queries own workflow records. Workspace session-list queries own repository records. The first live projection waits for task records and for the workspace record query to settle. A workspace record failure blocks chat actions, not healthy task sessions.
 - Load one missing source record through `source-session-loader.ts`. Do not load its transcript or refresh the full repository model.
 
 This owner does not load catalogs, file status, diff, selected history, or page navigation. It does not select a native runtime protocol.
@@ -308,7 +308,7 @@ Rules:
 6. Apply ordered changes on the same channel. After browser reconnect, wait for a fresh snapshot before replayed changes.
 7. Load history or missing context only for the selected session.
 
-Startup is complete when both durable record baselines and the first host snapshot have produced one committed collection. History does not block it.
+Startup is complete when task records and the first host snapshot have produced one committed collection after the workspace record query settles. Workspace record failures remain visible through `workspaceSessionRecordsError`. They do not stop the shared observer or fail task-session startup. History does not block startup.
 
 ## Regression tests
 

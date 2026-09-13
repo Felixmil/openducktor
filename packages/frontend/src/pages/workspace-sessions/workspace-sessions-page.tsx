@@ -7,7 +7,7 @@ import { Archive, Check, History, MessageCirclePlus, Plus } from "lucide-react";
 import { type ComponentProps, type ReactElement, useEffect, useState } from "react";
 import { useLocation, useNavigationType, useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { Tabs } from "@/components/ui/tabs";
 import {
   horizontalTabDropAnimation,
   horizontalTabSortTransition,
@@ -17,8 +17,8 @@ import {
   StudioTabStrip,
   StudioTabsList,
   StudioTabTrigger,
-  studioTabShellClassName,
 } from "@/components/features/agents/studio-tab-strip";
+import { studioTabShellClassName } from "@/components/features/agents/studio-tab-styles";
 import { isAgentSessionActivityActive } from "@/lib/agent-session-activity-state";
 import { agentSessionIdentityKey } from "@/lib/agent-session-identity";
 import { errorMessage } from "@/lib/errors";
@@ -33,17 +33,18 @@ import {
   workspaceSessionIdentity,
   workspaceSessionTitle,
 } from "@/state/operations/agent-orchestrator/session-read-model/workspace-session-records";
-import { settingsSnapshotQueryOptions } from "@/state/queries/workspace";
 import { invalidateRepoBranchesQuery } from "@/state/queries/git";
 import {
   updateWorkspaceSessionQueries,
   workspaceSessionListQueryOptions,
 } from "@/state/queries/workspace-sessions";
 import type { ActiveWorkspace } from "@/types/state-slices";
-import { WorkspaceSessionChat } from "./workspace-session-chat";
+import {
+  WorkspaceSessionContent,
+  WorkspaceSessionReadModelNotice,
+} from "./workspace-session-content";
 import { WorkspaceSessionCreateDialog } from "./workspace-session-create-dialog";
 import { WorkspaceSessionHistoryDialog } from "./workspace-session-history-dialog";
-import { WorkspaceSessionHeader } from "./workspace-session-header";
 import { WorkspaceSessionArchiveDialog } from "./workspace-session-archive-dialog";
 import { useMountedRef } from "./use-mounted-ref";
 import { useWorkspaceSessionNavigation } from "./use-workspace-session-navigation";
@@ -55,7 +56,7 @@ type WorkspaceSessionTabProps = {
   selected: boolean;
   pending: boolean;
   confirming: boolean;
-  onArchive?: (record: WorkspaceSession, running: boolean) => void;
+  onArchive?: (record: WorkspaceSession) => void;
   onSelect?: (id: string) => void;
   shouldSuppressSelection?: (id: string) => boolean;
 };
@@ -101,8 +102,7 @@ function WorkspaceSessionTabView({
   const running = isAgentSessionActivityActive(activity);
   const title = workspaceSessionTitle(record);
   let archiveLabel = `Archive ${title}`;
-  if (confirming)
-    archiveLabel = running ? `Confirm stop and archive ${title}` : `Confirm archive ${title}`;
+  if (confirming) archiveLabel = `Confirm stop and archive ${title}`;
   return (
     <div
       {...shellProps}
@@ -146,7 +146,7 @@ function WorkspaceSessionTabView({
         disabled={pending}
         onMouseDown={(event) => event.stopPropagation()}
         onPointerDown={(event) => event.stopPropagation()}
-        onClick={() => onArchive?.(record, running)}
+        onClick={() => onArchive?.(record)}
       >
         <Archive
           aria-hidden="true"
@@ -210,7 +210,7 @@ function WorkspaceSessionTabs({
   pending: boolean;
   onReorder: (draggedId: string, targetId: string, position: "before" | "after") => void;
   onSelect: (id: string) => void;
-  onArchive: (record: WorkspaceSession, running: boolean) => void;
+  onArchive: (record: WorkspaceSession) => void;
 }): ReactElement {
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   useEffect(() => {
@@ -218,10 +218,10 @@ function WorkspaceSessionTabs({
     const timeout = window.setTimeout(() => setConfirmingId(null), 5_000);
     return () => window.clearTimeout(timeout);
   }, [confirmingId]);
-  const handleArchive = (record: WorkspaceSession, running: boolean) => {
+  const handleArchive = (record: WorkspaceSession) => {
     if (record.executionTarget.kind === "local_worktree") {
       setConfirmingId(null);
-      onArchive(record, running);
+      onArchive(record);
       return;
     }
     if (confirmingId !== record.id) {
@@ -229,7 +229,7 @@ function WorkspaceSessionTabs({
       return;
     }
     setConfirmingId(null);
-    onArchive(record, running);
+    onArchive(record);
   };
   const tabIds = sessions.map((record) => record.id);
   const drag = useHorizontalSortableTabs({ itemIds: tabIds, onReorder });
@@ -288,14 +288,9 @@ function WorkspaceSessions({ workspace }: WorkspaceSessionsProps): ReactElement 
     workspace.workspaceId,
     records.data,
   );
-  const settings = useQuery(settingsSnapshotQueryOptions());
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [archiveTarget, setArchiveTarget] = useState<{
-    record: WorkspaceSession;
-    running: boolean;
-  } | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<WorkspaceSession | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const { sessionReadModelLoadState, reloadSessionReadModel } = useAgentSessionReadModelState();
   const mounted = useMountedRef();
   const selected = useWorkspaceSessionSelection({
     workspaceId: workspace.workspaceId,
@@ -379,58 +374,24 @@ function WorkspaceSessions({ workspace }: WorkspaceSessionsProps): ReactElement 
           pending={archive.isPending}
           onReorder={reorder}
           onSelect={(sessionId) => updateNavigation({ sessionId }, false)}
-          onArchive={(target, running) => {
+          onArchive={(target) => {
             archive.reset();
             if (target.executionTarget.kind === "local_worktree") {
-              setArchiveTarget({ record: target, running });
+              setArchiveTarget(target);
               return;
             }
             archive.mutate({ sessionId: target.id, confirmStop: true, removeWorktree: false });
           }}
         />
       </StudioTabStrip>
-      {sessionReadModelLoadState.kind === "failed" && (
-        <div role="alert" className="flex items-center gap-3 border-b border-border p-3 text-sm">
-          <span className="flex-1 text-destructive">
-            Status unavailable: {sessionReadModelLoadState.message}
-          </span>
-          <Button size="sm" variant="outline" onClick={reloadSessionReadModel}>
-            Retry
-          </Button>
-        </div>
-      )}
+      <WorkspaceSessionReadModelNotice />
       {archive.error && !archiveTarget && (
         <p role="alert" className="p-3 text-sm text-destructive">
           {errorMessage(archive.error)}
         </p>
       )}
       {selected ? (
-        <TabsContent
-          key={selected.id}
-          value={selected.id}
-          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-card"
-        >
-          <WorkspaceSessionHeader workspaceId={workspace.workspaceId} record={selected} />
-          {settings.data && (
-            <WorkspaceSessionChat
-              workspace={workspace}
-              record={selected}
-              chatSettings={settings.data.chat}
-              reusablePrompts={settings.data.reusablePrompts}
-            />
-          )}
-          {settings.isPending && (
-            <p role="status" className="p-4">
-              Loading chat settings…
-            </p>
-          )}
-          {settings.isError && (
-            <div role="alert" className="p-4">
-              <p className="text-destructive">{errorMessage(settings.error)}</p>
-              <Button onClick={() => void settings.refetch()}>Retry settings</Button>
-            </div>
-          )}
-        </TabsContent>
+        <WorkspaceSessionContent key={selected.id} workspace={workspace} record={selected} />
       ) : (
         <section className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 bg-card p-6 text-center">
           <MessageCirclePlus className="size-8 text-muted-foreground" aria-hidden="true" />
@@ -457,15 +418,14 @@ function WorkspaceSessions({ workspace }: WorkspaceSessionsProps): ReactElement 
       )}
       {archiveTarget && (
         <WorkspaceSessionArchiveDialog
-          key={archiveTarget.record.id}
+          key={archiveTarget.id}
           workspaceId={workspace.workspaceId}
-          record={archiveTarget.record}
-          running={archiveTarget.running}
+          record={archiveTarget}
           isArchiving={archive.isPending}
           error={archive.error}
           onArchive={(removeWorktree) =>
             archive.mutate({
-              sessionId: archiveTarget.record.id,
+              sessionId: archiveTarget.id,
               confirmStop: true,
               removeWorktree,
             })

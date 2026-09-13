@@ -45,7 +45,6 @@ test.each([false, true])(
         <WorkspaceSessionArchiveDialog
           workspaceId="test"
           record={record()}
-          running={false}
           isArchiving={false}
           error={null}
           onArchive={(remove) => requests.push(remove)}
@@ -66,6 +65,7 @@ test.each([false, true])(
       expect(view.getByText(/Commits that exist only on this branch/).textContent).toContain(
         "feature/chat",
       );
+      expect(view.getByText(/Archiving stops this session if it is running/)).toBeTruthy();
       fireEvent.click(submit);
       expect(requests).toEqual([true]);
     } finally {
@@ -94,7 +94,6 @@ test("turning removal off keeps Git resources and Cancel sends no archive reques
       <WorkspaceSessionArchiveDialog
         workspaceId="test"
         record={record()}
-        running
         isArchiving={false}
         error={null}
         onArchive={(remove) => requests.push(remove)}
@@ -106,7 +105,7 @@ test("turning removal off keeps Git resources and Cancel sends no archive reques
   );
   try {
     await view.findByText(/This worktree has local changes/, {}, { timeout: 800 });
-    expect(view.getByText(/Archiving also stops the running session/)).toBeTruthy();
+    expect(view.getByText(/Archiving stops this session if it is running/)).toBeTruthy();
     fireEvent.click(view.getByRole("button", { name: "Cancel" }));
     expect(closed).toBe(1);
     expect(requests).toEqual([]);
@@ -137,7 +136,6 @@ test("a failed check blocks removal but allows keeping the worktree", async () =
       <WorkspaceSessionArchiveDialog
         workspaceId="test"
         record={record()}
-        running={false}
         isArchiving={false}
         error={null}
         onArchive={(remove) => requests.push(remove)}
@@ -177,7 +175,6 @@ test("archive locks the full form and keeps its error and removal choice visible
   const props = {
     workspaceId: "test",
     record: record(),
-    running: false,
     onArchive: (remove: boolean) => requests.push(remove),
     onClose: () => {
       closed += 1;

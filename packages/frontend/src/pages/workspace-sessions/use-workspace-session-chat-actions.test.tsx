@@ -16,9 +16,14 @@ import { createSendAgentMessage } from "@/state/operations/agent-orchestrator/ha
 import { createSessionTurnMetadata } from "@/state/operations/agent-orchestrator/support/session-turn-metadata";
 import { sessionMessagesToArray } from "@/test-utils/session-message-test-helpers";
 
-test.each(["rejected", "accepted"] as const)(
-  "first send starts once and preserves the %s result",
-  async (outcome) => {
+test.each([
+  ["rejected", false],
+  ["accepted", false],
+  ["rejected", true],
+  ["accepted", true],
+] as const)(
+  "first send preserves the %s result, already bound=%s",
+  async (outcome, alreadyBound) => {
     const workspace = { workspaceId: "workspace", workspaceName: "Workspace", repoPath: "/repo" };
     const draftRecord: WorkspaceSession = {
       id: "draft",
@@ -58,7 +63,9 @@ test.each(["rejected", "accepted"] as const)(
         sendUserMessage: async (input) => {
           sends += 1;
           expect(input.externalSessionId).toBe("native");
-          expect(store.getSessionSnapshot(input)?.historyLoadState).toBe("loaded");
+          expect(store.getSessionSnapshot(input)?.historyLoadState).toBe(
+            alreadyBound ? "not_requested" : "loaded",
+          );
           expect(input.parts).toEqual([{ kind: "text", text: "Hello" }]);
           const acceptedMessage = {
             type: "user_message" as const,
@@ -130,13 +137,15 @@ test.each(["rejected", "accepted"] as const)(
             starts += 1;
             return {
               session: boundRecord,
-              runtimeSession: {
-                externalSessionId: "native",
-                runtimeKind: "codex",
-                workingDirectory: "/repo",
-                startedAt: new Date(1000).toISOString(),
-                status: "idle",
-              },
+              runtimeSession: alreadyBound
+                ? null
+                : {
+                    externalSessionId: "native",
+                    runtimeKind: "codex",
+                    workingDirectory: "/repo",
+                    startedAt: new Date(1000).toISOString(),
+                    status: "idle",
+                  },
             };
           },
         },

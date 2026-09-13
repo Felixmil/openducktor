@@ -66,7 +66,7 @@ test("start response keeps transcript events that arrived before the response", 
   expect(saved?.historyLoadState).toBe("loaded");
 });
 
-test("an already-bound chat is not given a fabricated empty baseline", async () => {
+test("an already-bound chat enters the shared store without a fabricated history baseline", async () => {
   const store = createAgentSessionsStore("/repo");
   const result = await startWorkspaceSession(
     { workspaceId: "workspace", sessionId: "chat" },
@@ -74,7 +74,12 @@ test("an already-bound chat is not given a fabricated empty baseline", async () 
     () => true,
     async () => ({ ...startedResult(), runtimeSession: null }),
   );
-  expect(store.getSessionSnapshot(result.identity)).toBeNull();
+  expect(store.getSessionSnapshot(result.identity)).toMatchObject({
+    historyLoadState: "not_requested",
+    livePresence: "unobserved",
+    sessionAssociation: { kind: "repository" },
+    title: "Chat",
+  });
 });
 
 test("a late start response cannot seed another workspace", async () => {
@@ -88,4 +93,40 @@ test("a late start response cannot seed another workspace", async () => {
     ),
   ).rejects.toThrow("Workspace changed");
   expect(store.listSessionSnapshots()).toEqual([]);
+});
+
+test("concurrent fresh and already-bound starts keep the same live session and transcript", async () => {
+  const store = createAgentSessionsStore("/repo");
+  const fresh = Promise.withResolvers<WorkspaceSessionStartResult>();
+  const bound = Promise.withResolvers<WorkspaceSessionStartResult>();
+  const ref = { workspaceId: "workspace", sessionId: "chat" };
+  const first = startWorkspaceSession(
+    ref,
+    store,
+    () => true,
+    () => fresh.promise,
+  );
+  const second = startWorkspaceSession(
+    ref,
+    store,
+    () => true,
+    () => bound.promise,
+  );
+  bound.resolve({ ...startedResult(), runtimeSession: null });
+  const registered = await second;
+  expect(store.getSessionSnapshot(registered.identity)?.historyLoadState).toBe("not_requested");
+  const live = createAgentSessionFixture({
+    ...registered.identity,
+    sessionAssociation: { kind: "repository" },
+    status: "running",
+    historyLoadState: "loaded",
+  });
+  store.replaceSession(live);
+  fresh.resolve(startedResult());
+  expect((await first).identity).toEqual(registered.identity);
+  const saved = store.getSessionSnapshot(registered.identity);
+  expect(store.listSessionSnapshots()).toHaveLength(1);
+  expect(saved?.messages).toBe(live.messages);
+  expect(saved?.status).toBe("running");
+  expect(saved?.historyLoadState).toBe("loaded");
 });

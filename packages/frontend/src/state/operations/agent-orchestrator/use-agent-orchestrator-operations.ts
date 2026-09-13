@@ -284,6 +284,7 @@ export function useAgentOrchestratorOperations({
   const readModelState = useMemo<AgentSessionReadModelStateContextValue>(
     () => ({
       sessionReadModelLoadState: currentSessionReadModel.sessionReadModelLoadState,
+      workspaceSessionRecordsError: currentSessionReadModel.workspaceSessionRecordsError,
       reloadSessionReadModel: currentSessionReadModel.reloadSessionReadModel,
       getSessionFault: currentSessionReadModel.getSessionFault,
     }),

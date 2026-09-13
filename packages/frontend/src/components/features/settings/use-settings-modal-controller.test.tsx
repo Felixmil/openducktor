@@ -992,6 +992,27 @@ describe("useSettingsModalController", () => {
     }
   });
 
+  test("discards a confirmed role deletion when Settings closes without saving", async () => {
+    const role = { id: "review", name: "Reviewer", systemPrompt: "Review code." };
+    settingsSnapshotFactory = () => ({ ...createSettingsSnapshot(), customAgentRoles: [role] });
+    saveSettingsSnapshot = mock(async () => {});
+    const harness = createHookHarness(true);
+    try {
+      await harness.mount();
+      await harness.waitFor((state) => state.snapshotDraft !== null);
+      await harness.run((state) => state.updateCustomAgentRoles(() => []));
+      expect(harness.getLatest().snapshotDraft?.customAgentRoles).toEqual([]);
+      expect(saveSettingsSnapshot).not.toHaveBeenCalled();
+      await harness.update({ isOpen: false, shouldLoad: false });
+      await harness.update({ isOpen: true, shouldLoad: false });
+      await harness.waitFor((state) => state.snapshotDraft !== null);
+      expect(harness.getLatest().snapshotDraft?.customAgentRoles).toEqual([role]);
+      expect(saveSettingsSnapshot).not.toHaveBeenCalled();
+    } finally {
+      await harness.unmount();
+    }
+  });
+
   test("blocks Save Settings for invalid roles and retains the draft after a failed save", async () => {
     saveSettingsSnapshot = mock(async () => {
       throw new Error("Settings write failed");

@@ -4,7 +4,11 @@ describe("getAppVersion", () => {
   const originalValue = import.meta.env.VITE_ODT_APP_VERSION;
 
   afterEach(() => {
-    import.meta.env.VITE_ODT_APP_VERSION = originalValue;
+    if (originalValue === undefined) {
+      delete import.meta.env.VITE_ODT_APP_VERSION;
+    } else {
+      import.meta.env.VITE_ODT_APP_VERSION = originalValue;
+    }
   });
 
   test("returns version when VITE_ODT_APP_VERSION is set", async () => {
@@ -20,7 +24,7 @@ describe("getAppVersion", () => {
   });
 
   test("returns null when VITE_ODT_APP_VERSION is absent", async () => {
-    import.meta.env.VITE_ODT_APP_VERSION = "";
+    delete import.meta.env.VITE_ODT_APP_VERSION;
     const { getAppVersion } = await import("./app-version");
     expect(getAppVersion()).toBeNull();
   });

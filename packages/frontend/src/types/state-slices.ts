@@ -184,6 +184,7 @@ export type SpecStateContextValue = {
 
 export type AgentSessionReadModelStateContextValue = {
   sessionReadModelLoadState: AgentSessionReadModelLoadState;
+  workspaceSessionRecordsError: string | null;
   reloadSessionReadModel: () => void;
   getSessionFault: (session: AgentSessionIdentity | null) => AgentSessionTransientFault | null;
 };

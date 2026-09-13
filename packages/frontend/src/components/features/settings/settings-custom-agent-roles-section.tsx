@@ -1,5 +1,15 @@
 import type { CustomAgentRole } from "@openducktor/contracts";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -35,6 +45,8 @@ export function SettingsCustomAgentRolesSection({
 }: Props) {
   const selectedRole = roles.find((role) => role.id === selectedRoleId) ?? roles[0] ?? null;
   const autofocusId = useRef<string | null>(null);
+  const [deleteRoleId, setDeleteRoleId] = useState<string | null>(null);
+  const roleToDelete = roles.find((role) => role.id === deleteRoleId);
   const addRole = (): void => {
     const role = createCustomAgentRoleDraft();
     autofocusId.current = role.id;
@@ -76,7 +88,7 @@ export function SettingsCustomAgentRolesSection({
           onNameAutofocused={() => {
             autofocusId.current = null;
           }}
-          onDelete={() => deleteRole(selectedRole.id)}
+          onDelete={() => setDeleteRoleId(selectedRole.id)}
           onChange={(field, value) =>
             onUpdate((current) =>
               current.map((role) =>
@@ -100,6 +112,42 @@ export function SettingsCustomAgentRolesSection({
             Choose the role when you start a chat. Roles are available in every workspace.
           </p>
         </SettingsListEditorEmptyState>
+      )}
+      {roleToDelete && (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setDeleteRoleId(null);
+          }}
+        >
+          <DialogContent className="p-0 sm:max-w-md">
+            <DialogHeader className="border-b border-border px-6 py-4">
+              <DialogTitle>Delete custom agent role</DialogTitle>
+              <DialogDescription>
+                Delete "{roleLabel(roleToDelete)}" from your settings?
+              </DialogDescription>
+            </DialogHeader>
+            <DialogBody className="px-6 py-4 text-sm text-muted-foreground">
+              Existing chats keep their original role. Save Settings to apply this deletion.
+            </DialogBody>
+            <DialogFooter className="mt-0 border-t border-border bg-muted/20 px-6 py-4">
+              <Button type="button" variant="outline" onClick={() => setDeleteRoleId(null)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={disabled}
+                onClick={() => {
+                  deleteRole(roleToDelete.id);
+                  setDeleteRoleId(null);
+                }}
+              >
+                Delete role
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </SettingsListEditor>
   );

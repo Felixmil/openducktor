@@ -89,6 +89,20 @@ test.each([true, false])(
       expect(requests).toEqual([]);
       fireEvent.click(view.getByRole("button", { name: "Archive Second" }));
       await view.findByText(/This worktree has local changes/, {}, { timeout: 800 });
+      await act(async () => {
+        view.store.replaceSession(
+          createAgentSessionFixture({
+            runtimeKind: "opencode",
+            externalSessionId: "native-Second",
+            workingDirectory: "/worktrees/second",
+            sessionAssociation: { kind: "repository" },
+            status: "running",
+            pendingApprovals: [],
+            pendingQuestions: [],
+          }),
+        );
+      });
+      expect(view.getByText(/Archiving stops this session if it is running/)).toBeTruthy();
       expect(view.getByRole("switch").getAttribute("aria-checked")).toBe("true");
       if (!removeWorktree) fireEvent.click(view.getByRole("switch"));
       const submit = view.getByRole("button", { name: "Archive chat" });
@@ -329,6 +343,7 @@ function renderTabs(
             value={{
               sessionReadModelLoadState: { kind: "ready", workspaceRepoPath: "/repo" },
               getSessionFault: () => null,
+              workspaceSessionRecordsError: null,
               reloadSessionReadModel: () => {},
             }}
           >
@@ -652,7 +667,7 @@ test("replaces a missing session URL and clears it after the final archive", asy
     );
     fireEvent.click(view.getByRole("button", { name: "Archive First" }));
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Confirm archive First" }));
+      fireEvent.click(view.getByRole("button", { name: "Confirm stop and archive First" }));
     });
     await view.findByText("No active sessions.", {}, { timeout: 800 });
     await waitFor(
@@ -740,7 +755,7 @@ test("archive targets its tab, restore preserves selection, and the final archiv
       expect(requests).toHaveLength(0);
       expect(view.queryByRole("dialog")).toBeNull();
       expect(firstTab.getAttribute("aria-selected")).toBe("true");
-      fireEvent.click(view.getByRole("button", { name: "Confirm archive Second" }));
+      fireEvent.click(view.getByRole("button", { name: "Confirm stop and archive Second" }));
     });
     await waitFor(() => expect(view.queryByText("Second") === null).toBe(true), { timeout: 800 });
     expect(firstTab.getAttribute("aria-selected")).toBe("true");
@@ -768,7 +783,7 @@ test("archive targets its tab, restore preserves selection, and the final archiv
     expect(view.getByRole("tab", { name: /Second/ }).getAttribute("aria-selected")).toBe("false");
     fireEvent.click(view.getByRole("button", { name: "Archive First" }));
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Confirm archive First" }));
+      fireEvent.click(view.getByRole("button", { name: "Confirm stop and archive First" }));
     });
     await waitFor(
       () =>
@@ -779,7 +794,7 @@ test("archive targets its tab, restore preserves selection, and the final archiv
     );
     fireEvent.click(view.getByRole("button", { name: "Archive Second" }));
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Confirm archive Second" }));
+      fireEvent.click(view.getByRole("button", { name: "Confirm stop and archive Second" }));
     });
     await view.findByText("No active sessions.", {}, { timeout: 800 });
     expect(view.queryAllByRole("tab")).toHaveLength(0);
@@ -809,14 +824,16 @@ test("archive confirmation expires after five seconds and only one tab is armed"
     jest.useFakeTimers();
     fireEvent.click(view.getByRole("button", { name: "Archive First" }));
     act(() => jest.advanceTimersByTime(4_999));
-    expect(view.getByRole("button", { name: "Confirm archive First" })).toBeTruthy();
+    expect(view.getByRole("button", { name: "Confirm stop and archive First" })).toBeTruthy();
     expect(
       view
-        .getByRole("button", { name: "Confirm archive First" })
+        .getByRole("button", { name: "Confirm stop and archive First" })
         .classList.contains("text-foreground"),
     ).toBe(true);
     expect(
-      view.getByRole("button", { name: "Confirm archive First" }).classList.contains("opacity-100"),
+      view
+        .getByRole("button", { name: "Confirm stop and archive First" })
+        .classList.contains("opacity-100"),
     ).toBe(true);
     act(() => jest.advanceTimersByTime(1));
     expect(view.getByRole("button", { name: "Archive First" })).toBeTruthy();
@@ -824,7 +841,7 @@ test("archive confirmation expires after five seconds and only one tab is armed"
     fireEvent.click(view.getByRole("button", { name: "Archive First" }));
     fireEvent.click(view.getByRole("button", { name: "Archive Second" }));
     expect(view.getByRole("button", { name: "Archive First" })).toBeTruthy();
-    expect(view.getByRole("button", { name: "Confirm archive Second" })).toBeTruthy();
+    expect(view.getByRole("button", { name: "Confirm stop and archive Second" })).toBeTruthy();
     expect(calls).toBe(0);
   } finally {
     view.unmount();
@@ -892,7 +909,7 @@ test("an archive in flight disables all tab archive controls", async () => {
   try {
     fireEvent.click(await view.findByRole("button", { name: "Archive Second" }, { timeout: 800 }));
     expect(calls).toBe(0);
-    fireEvent.click(view.getByRole("button", { name: "Confirm archive Second" }));
+    fireEvent.click(view.getByRole("button", { name: "Confirm stop and archive Second" }));
     await waitFor(
       () =>
         expect(view.getByRole("button", { name: "Archive First" }).hasAttribute("disabled")).toBe(

@@ -235,6 +235,7 @@ const createHookHarness = (initialProps: HookArgs, contextOverrides: TestContext
               sessionReadModelLoadState: sessionReadModelLoadStateRef.current,
               reloadSessionReadModel: () => undefined,
               getSessionFault: getSessionFaultRef.current,
+              workspaceSessionRecordsError: null,
             }}
           >
             {children}

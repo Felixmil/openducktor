@@ -2,6 +2,7 @@ import type { WorkspaceSessionRefInput } from "@openducktor/contracts";
 import type { AgentSessionsStore } from "@/state/agent-sessions-store";
 import { host } from "@/state/operations/host";
 import {
+  applyWorkspaceSessionRecords,
   workspaceSessionIdentity,
   workspaceSessionTitle,
 } from "@/state/operations/agent-orchestrator/session-read-model/workspace-session-records";
@@ -21,7 +22,12 @@ export const startWorkspaceSession = async (
   const identity = workspaceSessionIdentity(result.session);
   if (!identity)
     throw new Error("The host did not bind a runtime session. Retry sending your draft.");
-  if (result.runtimeSession) {
+  if (!result.runtimeSession) {
+    store.commitSessionCollection((current) => ({
+      collection: applyWorkspaceSessionRecords(current, [result.session]),
+      result: undefined,
+    }));
+  } else {
     const current = store.getSessionSnapshot(identity);
     store.replaceSession({
       ...identity,

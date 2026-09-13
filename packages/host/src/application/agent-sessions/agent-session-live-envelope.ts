@@ -148,7 +148,7 @@ export const toAgentSessionLiveEnvelope = (
   }
 };
 
-export const formatAgentSessionLiveFaultLog = (envelope: AgentSessionLiveFaultEnvelope): string => {
+const formatAgentSessionLiveFaultLog = (envelope: AgentSessionLiveFaultEnvelope): string => {
   const payload: AgentSessionLiveFaultLogPayload = {
     repoPath: envelope.repoPath,
     message: envelope.message,
@@ -164,7 +164,7 @@ export const formatAgentSessionLiveFaultLog = (envelope: AgentSessionLiveFaultEn
   return `agent-session-live.fault ${JSON.stringify(payload)}`;
 };
 
-export const toAgentSessionLiveEnvelopePublishError = (
+const toAgentSessionLiveEnvelopePublishError = (
   cause: unknown,
   eventType: AgentSessionLiveEnvelope["type"],
 ): HostOperationErrorAggregate | HostValidationErrorAggregate =>

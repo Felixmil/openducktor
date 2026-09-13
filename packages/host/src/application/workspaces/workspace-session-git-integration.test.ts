@@ -40,11 +40,18 @@ describe("Workspace Session commands with real Git and SQLite", () => {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
+  const registeredWorktreePaths = () =>
+    gitCommand("worktree", "list", "--porcelain", "-z")
+      .split("\0")
+      .filter((field) => field.startsWith("worktree "))
+      .map((field) => path.resolve(field.slice("worktree ".length)));
   beforeEach(async () => {
     root = await realpath(await mkdtemp(path.join(tmpdir(), "odt-workspace-session-git-")));
     repoPath = path.join(root, "repository");
     await mkdir(repoPath);
     gitCommand("init", "-b", "main");
+    gitCommand("config", "core.autocrlf", "false");
+    gitCommand("config", "core.eol", "lf");
     await writeFile(path.join(repoPath, "tracked.txt"), "committed\n");
     await writeFile(path.join(repoPath, ".gitignore"), ".env\nhook-proof.txt\n");
     gitCommand("add", ".");
@@ -198,7 +205,7 @@ describe("Workspace Session commands with real Git and SQLite", () => {
         confirmStop: false,
       });
       expect(archived.archivedAt).not.toBeNull();
-      expect(gitCommand("worktree", "list", "--porcelain")).toContain(directory);
+      expect(registeredWorktreePaths()).toContain(directory);
       expect(
         await h.router.invoke("workspace_session_list_active", { workspaceId: "fairnest" }),
       ).toEqual([]);
@@ -260,7 +267,7 @@ describe("Workspace Session commands with real Git and SQLite", () => {
         expect(await readFile(path.join(directory, "owned.txt"), "utf8")).toBe(
           "Keep the winning request's file.",
         );
-        expect(gitCommand("worktree", "list", "--porcelain")).toContain(directory);
+        expect(registeredWorktreePaths()).toContain(directory);
         expect(gitCommand("branch", "--list", "odt/named-chat")).toContain("odt/named-chat");
         expect(await h.router.invoke("workspace_session_get", ref)).toEqual(archived);
         expect(
@@ -284,9 +291,7 @@ describe("Workspace Session commands with real Git and SQLite", () => {
       }),
     ).rejects.toThrow("Runtime refused startup");
     expect(h.starts).toHaveLength(1);
-    expect(gitCommand("worktree", "list", "--porcelain")).toContain(
-      session.executionTarget.workingDirectory,
-    );
+    expect(registeredWorktreePaths()).toContain(session.executionTarget.workingDirectory);
     expect(gitCommand("branch", "--list", "odt/named-chat")).toContain("odt/named-chat");
     expect(
       await h.router.invoke("workspace_session_list_active", { workspaceId: "fairnest" }),
@@ -395,7 +400,7 @@ describe("Workspace Session commands with real Git and SQLite", () => {
         worktree: { mode: "from_branch", name: "main-review", branchName: "main" },
       }),
     ).rejects.toThrow(
-      `Branch main is already checked out at ${repoPath}. Choose another branch or use Current checkout.`,
+      `Branch main is already checked out at ${gitCommand("rev-parse", "--show-toplevel")}. Choose another branch or use Current checkout.`,
     );
     expect(gitCommand("rev-parse", "main")).toBe(originalHead);
     expect(gitCommand("branch", "--show-current")).toBe("main");
@@ -515,7 +520,7 @@ describe("Workspace Session commands with real Git and SQLite", () => {
         branchName,
         worktreeState: "removed",
       });
-      expect(gitCommand("worktree", "list", "--porcelain")).not.toContain(directory);
+      expect(registeredWorktreePaths()).not.toContain(directory);
       expect(gitCommand("branch", "--list", branchName)).toBe("");
       await expect(readFile(path.join(directory, "tracked.txt"), "utf8")).rejects.toThrow();
       expect(
@@ -607,9 +612,7 @@ describe("Workspace Session commands with real Git and SQLite", () => {
     await expect(
       h.router.invoke("workspace_session_archive", { ...ref, removeWorktree: true }),
     ).rejects.toThrow("protected branch main");
-    expect(gitCommand("worktree", "list", "--porcelain")).toContain(
-      session.executionTarget.workingDirectory,
-    );
+    expect(registeredWorktreePaths()).toContain(session.executionTarget.workingDirectory);
     const archived = await h.router.invoke("workspace_session_archive", {
       ...ref,
       removeWorktree: false,

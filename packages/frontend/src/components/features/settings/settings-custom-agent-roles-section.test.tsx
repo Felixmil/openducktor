@@ -41,10 +41,16 @@ test("adds local drafts, focuses the name, keeps edits across selection, and del
     fireEvent.click(view.getByRole("button", { name: "Reviewer" }));
     expect(view.container.querySelector("textarea")?.value).toBe("Review code.\n");
     fireEvent.click(view.getByRole("button", { name: "Delete" }));
+    expect(view.getByRole("dialog", { name: "Delete custom agent role" })).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+    expect(view.getByDisplayValue("Reviewer")).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Delete" }));
+    fireEvent.click(view.getByRole("button", { name: "Delete role" }));
     expect(view.getByDisplayValue("Researcher")).toBeTruthy();
     expect(view.queryByRole("dialog")).toBeNull();
     expect(view.queryByRole("button", { name: "Save role" })).toBeNull();
     fireEvent.click(view.getByRole("button", { name: "Delete" }));
+    fireEvent.click(view.getByRole("button", { name: "Delete role" }));
     expect(view.getByText("Create your first custom agent role")).toBeTruthy();
   } finally {
     view.unmount();

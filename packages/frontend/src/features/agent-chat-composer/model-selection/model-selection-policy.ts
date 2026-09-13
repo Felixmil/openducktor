@@ -6,10 +6,11 @@ export const resolveModelSelectionPolicy = (
 ) => {
   const variants = model?.variants ?? [];
   const liveVariants = liveSession ? model?.liveSessionUpdates?.variants : undefined;
+  const allowedVariants = liveVariants ? new Set(liveVariants) : null;
   return {
     canChangeProfile: !liveSession || model?.liveSessionUpdates?.profile !== false,
-    variants: liveVariants
-      ? variants.filter((variant) => liveVariants.includes(variant))
+    variants: allowedVariants
+      ? variants.filter((variant) => allowedVariants.has(variant))
       : variants,
   };
 };

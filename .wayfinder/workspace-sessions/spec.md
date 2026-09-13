@@ -6,7 +6,7 @@ status: open
 labels: ["ready-for-agent"]
 ---
 
-## Problem Statement
+## Problem statement
 
 Users need to discuss and work on a Repository without creating a Task or entering the Task Workflow. These conversations need a durable place in their Workspace. Users must be able to return after an app restart, switch conversations directly, and keep finished conversations out of the main view without deleting them.
 
@@ -20,7 +20,7 @@ Show every active Workspace Session as a horizontal tab at the top of the page. 
 
 Store session metadata in the Workspace database. Keep transcripts and live interaction state runtime-owned. Users manage Custom Agent Roles in global Settings. Each session retains an immutable copy of its chosen Role and an immutable Execution Target.
 
-## User Stories
+## User stories
 
 ### Starting a conversation
 
@@ -90,7 +90,7 @@ Store session metadata in the Workspace database. Keep transcripts and live inte
 40. As a user, I want the page and dialogs to work in light and dark themes and with a collapsed sidebar, so that they match the rest of OpenDucktor.
 41. As a user, I want creation to disable the form while pending and show actionable errors, so that repeated input cannot create unintended duplicate sessions.
 
-## Implementation Decisions
+## Implementation decisions
 
 ### Ownership and integration
 
@@ -156,7 +156,7 @@ Store session metadata in the Workspace database. Keep transcripts and live inte
 4. A running session requires a warning and confirmation before archive. Stop the runtime before writing archive metadata. If Stop fails, show its error and do not archive. Stop by itself never archives. Runtime activity and load failures never archive automatically. OpenDucktor never deletes a runtime-owned session.
 5. Add global sidebar Create task and New session actions, including collapsed-sidebar controls. Use the requested sticky-note-plus and message-circle-plus visuals through the existing icon system. Create task opens the existing task dialog. New session opens the session creation dialog with optional name, shared combined Runtime and Model selection, separate supported Effort selection, optional Custom Agent Role, and current-checkout or new-worktree choice. Use actual capabilities and catalogs, disable the full form while pending, and preserve loading and error feedback. Use project shadcn components and semantic tokens in both themes.
 
-## Testing Decisions
+## Testing decisions
 
 1. Test public behavior at the highest existing interfaces that can prove it. Prefer the host application and command boundary for lifecycle behavior, and the existing shared session hooks and components for UI behavior. Do not add production options or exports solely for tests, a separate test runner, or a Workspace-specific test framework.
 2. Test host creation and persistence with the real workspace SQLite adapter and disposable Repository/worktree fixtures. Use controlled fakes at existing runtime ports. Cover restart persistence, duplicate identities, validation, Role snapshot retention, workspace separation, model acceptance ordering, title rules, monotonic activity, archive idempotency, stop-before-archive, Stop failure, worktree setup and rollback, collisions, and invalid targets. Assert records, returned errors, runtime calls, and Git resources rather than private call structure. Reuse node host-command router tests and the shared SQLite store-port contract test pattern. Add focused store contract cases where host commands do not expose an approved port guarantee.
@@ -164,7 +164,7 @@ Store session metadata in the Workspace database. Keep transcripts and live inte
 4. Test visible UI behavior with focused component or hook tests. Cover creation input and pending state, capability-driven Runtime/Model/Effort choices, immutable Role behavior, global catalog validation and deletion, correct-tab archive, running confirmation and cancellation, Stop failure, restore-only History, selection preservation, and both sidebar actions. Avoid broad page mocks, shared mutable test clients, and process-wide module-mock cleanup. Keep ordinary unit and hook tests fast without increasing timeouts to hide failures.
 5. Run a browser smoke test against the real backend started by the user. Create and resume a real Workspace Session, exercise archive and restore, switch Workspaces, check the creation dialog and sidebar, and inspect light and dark themes. Verify a supported runtime's Role prompt and approval behavior through its existing integration boundary. Prototype sample interactions are design evidence, not proof that runtime persistence or recovery works.
 
-## Out of Scope
+## Out of scope
 
 1. Task-bound Custom Workflow Roles, changes to built-in Workflow Role prompts, or turning a Workspace Session into a Task Workflow session.
 2. Docker, SSH, remote Execution Targets, arbitrary existing-worktree adoption, copying uncommitted checkout changes, or automatic recreation of missing targets.
@@ -172,7 +172,7 @@ Store session metadata in the Workspace database. Keep transcripts and live inte
 4. A new session fork action, separate closed-tab state, archived conversation viewing, automatic archive, restore-on-send, search/filter/bulk-cleanup features, pagination, Role import/export, or manual Role ordering.
 5. LLM title generation, future right-side Git/file tools, a new multi-window concurrency system, or application implementation as part of this specification-writing task.
 
-## Further Notes
+## Further notes
 
 The user approved the final in-app prototype and asked to proceed to the specification. The prototype records layout and interaction choices only. Its sample catalogs, sample messages, temporary route, and memory-only storage are not production requirements.
 

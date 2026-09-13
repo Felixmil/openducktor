@@ -11,7 +11,7 @@ import { type GitCommandRunner, runGit, runGitAllowFailure } from "./git-command
 
 const unmergedStatusPairs = new Set(["DD", "AU", "UD", "UA", "DU", "AA", "UU"]);
 
-export const parseBranchRows = (output: string): GitBranch[] => {
+const parseBranchRows = (output: string): GitBranch[] => {
   const branches = output.split("\0\n").flatMap((line): GitBranch[] => {
     if (!line) {
       return [];

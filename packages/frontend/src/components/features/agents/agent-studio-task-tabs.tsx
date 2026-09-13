@@ -15,13 +15,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  StudioTabStrip,
-  StudioTabsList,
-  StudioTabTrigger,
-  studioTabLabelClassName,
-  studioTabShellClassName,
-} from "./studio-tab-strip";
+import { StudioTabStrip, StudioTabsList, StudioTabTrigger } from "./studio-tab-strip";
+import { studioTabLabelClassName, studioTabShellClassName } from "./studio-tab-styles";
 import {
   horizontalTabDropAnimation,
   horizontalTabSortTransition,

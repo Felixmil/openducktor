@@ -47,7 +47,7 @@ function QueryStatus() {
   );
 }
 
-test.each(["retry", "streaming", "draft"] as const)(
+test.each(["retry", "streaming", "draft", "record-failure"] as const)(
   "workspace chat %s preserves readiness and completed turns",
   async (scenario) => {
     const workspace = { workspaceId: "A", workspaceName: "Test", repoPath: "/repo" };
@@ -141,16 +141,18 @@ test.each(["retry", "streaming", "draft"] as const)(
     let completeObservation!: () => void;
     function Harness() {
       const [phase, setPhase] = useState<"fault" | "loading" | "ready">(
-        scenario === "retry" ? "fault" : "ready",
+        scenario === "retry" || scenario === "record-failure" ? "fault" : "ready",
       );
       completeObservation = () => setPhase("ready");
       const readModel: AgentSessionReadModelStateContextValue = {
+        workspaceSessionRecordsError:
+          scenario === "record-failure" && phase !== "ready" ? "Chat records failed" : null,
         sessionReadModelLoadState: {
           kind: phase === "loading" ? "loading" : "ready",
           workspaceRepoPath: "/repo",
         },
         getSessionFault: () =>
-          phase === "fault"
+          phase === "fault" && scenario === "retry"
             ? { source: "workspace-target", message: "Runtime directory mismatch" }
             : null,
         reloadSessionReadModel: () => setPhase("loading"),
@@ -260,11 +262,16 @@ test.each(["retry", "streaming", "draft"] as const)(
       }
       const composer = view.getByLabelText("Message composer");
       expect(composer.getAttribute("contenteditable")).toBe("false");
-      await act(async () => {
-        fireEvent.click(view.getByRole("button", { name: "Retry" }));
-      });
-      expect(composer.getAttribute("contenteditable")).toBe("false");
-      expect(view.queryByText("Workspace Session target mismatch")).toBeNull();
+      if (scenario === "record-failure") {
+        await view.findByText("Chat records failed");
+        expect(view.getByText("Completed answer")).toBeTruthy();
+      } else {
+        await act(async () => {
+          fireEvent.click(view.getByRole("button", { name: "Retry" }));
+        });
+        expect(composer.getAttribute("contenteditable")).toBe("false");
+        expect(view.queryByText("Workspace Session target mismatch")).toBeNull();
+      }
       await act(async () => {
         completeObservation();
       });

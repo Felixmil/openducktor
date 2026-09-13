@@ -173,7 +173,7 @@ describe("host-owned Workspace Session lifecycle", () => {
           }),
       }),
       settingsConfig: createSettingsConfigTestDouble({
-        defaultWorktreeBasePath: () => "/worktrees",
+        defaultWorktreeBasePath: () => path.join(database.repoPath, "worktrees"),
         resolveConfiguredPath: (value) => value,
         join: path.join,
         pathExists: (value) => Effect.succeed(paths.has(value)),
@@ -310,37 +310,41 @@ describe("host-owned Workspace Session lifecycle", () => {
     }
   });
 
-  test("persists a draft and starts once with its immutable Role snapshot and saved model", async () => {
-    const h = setup();
-    const created = await Effect.runPromise(h.service.create(input()));
-    expect(h.calls).toEqual(["save"]);
-    expect(h.starts).toEqual([]);
-    expect(created.session.externalSessionId).toBeNull();
-    h.roles[0]!.systemPrompt = "Edited prompt.";
-    const ref = { workspaceId: "fairnest", sessionId: created.session.id };
-    const started = await Effect.runPromise(h.service.start(ref));
-    expect(h.calls).toEqual(["save", "ensure-runtime", "start", "bind"]);
-    expect(h.starts[0]).toMatchObject({
-      repoPath: database.repoPath,
-      workingDirectory: database.repoPath,
-      sessionScope: { kind: "repository" },
-      systemPrompt: "Original prompt.",
-      model: input().selectedModel,
-    });
-    expect(created.session).toMatchObject({
-      manualTitle: "My session",
-      generatedTitle: null,
-      archivedAt: null,
-      roleSnapshot: { name: "Reviewer", systemPrompt: "Original prompt." },
-      selectedModel: input().selectedModel,
-    });
-    expect(await Effect.runPromise(h.service.listActive("fairnest"))).toEqual([started.session]);
-    expect(await Effect.runPromise(h.service.start(ref))).toEqual({
-      session: started.session,
-      runtimeSession: null,
-    });
-    expect(h.starts).toHaveLength(1);
-  });
+  test.each(["edit", "delete"] as const)(
+    "persists a draft and keeps its Role snapshot after a role %s",
+    async (change) => {
+      const h = setup();
+      const created = await Effect.runPromise(h.service.create(input()));
+      expect(h.calls).toEqual(["save"]);
+      expect(h.starts).toEqual([]);
+      expect(created.session.externalSessionId).toBeNull();
+      if (change === "edit") h.roles[0]!.systemPrompt = "Edited prompt.";
+      else h.roles.splice(0, 1);
+      const ref = { workspaceId: "fairnest", sessionId: created.session.id };
+      const started = await Effect.runPromise(h.service.start(ref));
+      expect(h.calls).toEqual(["save", "ensure-runtime", "start", "bind"]);
+      expect(h.starts[0]).toMatchObject({
+        repoPath: database.repoPath,
+        workingDirectory: database.repoPath,
+        sessionScope: { kind: "repository" },
+        systemPrompt: "Original prompt.",
+        model: input().selectedModel,
+      });
+      expect(created.session).toMatchObject({
+        manualTitle: "My session",
+        generatedTitle: null,
+        archivedAt: null,
+        roleSnapshot: { name: "Reviewer", systemPrompt: "Original prompt." },
+        selectedModel: input().selectedModel,
+      });
+      expect(await Effect.runPromise(h.service.listActive("fairnest"))).toEqual([started.session]);
+      expect(await Effect.runPromise(h.service.start(ref))).toEqual({
+        session: started.session,
+        runtimeSession: null,
+      });
+      expect(h.starts).toHaveLength(1);
+    },
+  );
 
   test("No Role supplies no Role prompt and missing Roles fail before resource creation", async () => {
     const h = setup();
@@ -363,7 +367,9 @@ describe("host-owned Workspace Session lifecycle", () => {
     h.state.changed = true;
     const { session } = await Effect.runPromise(h.service.create(worktreeInput()));
     expect(h.calls).toEqual(["worktree", "copy", "hook", "save"]);
-    expect(h.state.worktree).toBe("/worktrees/workspace-sessions/my-feature");
+    expect(h.state.worktree).toBe(
+      path.join(database.repoPath, "worktrees", "workspace-sessions", "my-feature"),
+    );
     expect(session.executionTarget.workingDirectory).toBe(h.state.worktree);
     expect(h.state.branch).toBe("odt/my-feature");
     expect(h.state.createBranch).toBe(true);
@@ -379,7 +385,9 @@ describe("host-owned Workspace Session lifecycle", () => {
         worktree: { mode: "from_name", name: "review-ui", branchName: "feature/custom-ui" },
       }),
     );
-    expect(h.state.worktree).toBe("/worktrees/workspace-sessions/review-ui");
+    expect(h.state.worktree).toBe(
+      path.join(database.repoPath, "worktrees", "workspace-sessions", "review-ui"),
+    );
     expect(h.state.branch).toBe("feature/custom-ui");
     expect(h.state.createBranch).toBe(true);
     expect(h.state.startPoint).toBe("HEAD");
@@ -403,7 +411,9 @@ describe("host-owned Workspace Session lifecycle", () => {
         worktree: { mode: "from_branch", name: "existing-review", branchName: "feature/existing" },
       }),
     );
-    expect(h.state.worktree).toBe("/worktrees/workspace-sessions/existing-review");
+    expect(h.state.worktree).toBe(
+      path.join(database.repoPath, "worktrees", "workspace-sessions", "existing-review"),
+    );
     expect(h.state.branch).toBe("feature/existing");
     expect(h.state.createBranch).toBe(false);
     expect(h.state.startPoint).toBeUndefined();
@@ -416,8 +426,14 @@ describe("host-owned Workspace Session lifecycle", () => {
     await expect(Effect.runPromise(h.service.create(worktreeInput()))).rejects.toThrow(
       /Git did not confirm.*my-feature.*odt\/my-feature[\s\S]*git add failed after creation/,
     );
-    expect(h.paths.has("/worktrees/workspace-sessions/my-feature")).toBe(true);
-    expect(h.registered.has("/worktrees/workspace-sessions/my-feature")).toBe(true);
+    expect(
+      h.paths.has(path.join(database.repoPath, "worktrees", "workspace-sessions", "my-feature")),
+    ).toBe(true);
+    expect(
+      h.registered.has(
+        path.join(database.repoPath, "worktrees", "workspace-sessions", "my-feature"),
+      ),
+    ).toBe(true);
     expect(h.branches.has("refs/heads/odt/my-feature")).toBe(true);
     expect(h.calls).not.toContain("remove-worktree");
     expect(h.calls).not.toContain("delete-branch");
@@ -492,8 +508,12 @@ describe("host-owned Workspace Session lifecycle", () => {
       ),
     );
     expect(h.paths.size).toBe(1);
-    expect(h.paths.has(`/worktrees/workspace-sessions/${name}`)).toBe(true);
-    expect(h.registered.has(`/worktrees/workspace-sessions/${name}`)).toBe(true);
+    expect(h.paths.has(path.join(database.repoPath, "worktrees", "workspace-sessions", name))).toBe(
+      true,
+    );
+    expect(
+      h.registered.has(path.join(database.repoPath, "worktrees", "workspace-sessions", name)),
+    ).toBe(true);
     expect(h.branches.has("refs/heads/odt/my-feature")).toBe(true);
     expect(h.calls).not.toContain("remove-worktree");
     expect(h.calls).not.toContain("delete-branch");
@@ -605,7 +625,7 @@ describe("host-owned Workspace Session lifecycle", () => {
 
   test("rejects a directory collision without changing the directory or existing branch", async () => {
     const h = setup();
-    h.paths.add("/worktrees/workspace-sessions/review");
+    h.paths.add(path.join(database.repoPath, "worktrees", "workspace-sessions", "review"));
     h.branches.add("refs/heads/feature/existing");
     await expect(
       Effect.runPromise(
@@ -615,7 +635,9 @@ describe("host-owned Workspace Session lifecycle", () => {
         }),
       ),
     ).rejects.toThrow("Worktree directory already exists");
-    expect([...h.paths]).toEqual(["/worktrees/workspace-sessions/review"]);
+    expect([...h.paths]).toEqual([
+      path.join(database.repoPath, "worktrees", "workspace-sessions", "review"),
+    ]);
     expect([...h.branches]).toEqual(["refs/heads/feature/existing"]);
     expect(h.calls).toEqual([]);
   });

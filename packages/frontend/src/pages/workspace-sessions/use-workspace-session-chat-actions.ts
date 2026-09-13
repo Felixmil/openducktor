@@ -91,6 +91,8 @@ export function useWorkspaceSessionChatActions(
     } finally {
       sending.current = false;
       if (mounted.current) {
+        // Both flags reset in finally after acceptance, rejection, and early return.
+        // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally
         setSending(false);
         setStarting(false);
       }

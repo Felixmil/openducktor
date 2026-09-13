@@ -1,40 +1,11 @@
 import type { ReactElement } from "react";
 import { Button } from "@/components/ui/button";
-import type { RepositorySectionId, SettingsSectionId } from "./settings-modal-constants";
+import {
+  resolveSettingsModalFooter,
+  type SettingsModalFooterState,
+} from "./settings-modal-footer-state";
 
-type SettingsModalFooterSaveState = {
-  isSaving: boolean;
-  isLoadingSettings: boolean;
-  hasSnapshotDraft: boolean;
-  settingsError: string | null;
-  isLoadingRuntimeConfiguration: boolean;
-};
-
-type SettingsModalFooterValidationSummary = {
-  customAgentRoleFieldErrorCount: number;
-  promptPlaceholderErrorCount: number;
-  reusablePromptFieldErrorCount: number;
-  runtimeAvailabilityErrorCount: number;
-  hasUnacknowledgedCodexDangerousSettings: boolean;
-  repoScriptFieldErrorCount: number;
-};
-
-type SettingsModalFooterErrors = {
-  saveError: string | null;
-  catalogError: string | null;
-  runtimeExecutablesError: string | null;
-};
-
-type SettingsModalFooterLocation = {
-  section: SettingsSectionId;
-  repositorySection: RepositorySectionId;
-};
-
-type SettingsModalFooterProps = {
-  saveState: SettingsModalFooterSaveState;
-  validationSummary: SettingsModalFooterValidationSummary;
-  errors: SettingsModalFooterErrors;
-  location: SettingsModalFooterLocation;
+type SettingsModalFooterProps = SettingsModalFooterState & {
   onCancel: () => void;
   onSave: () => void;
 };
@@ -47,24 +18,12 @@ export function SettingsModalFooter({
   onCancel,
   onSave,
 }: SettingsModalFooterProps): ReactElement {
-  const hasCustomAgentRoleValidationErrors = validationSummary.customAgentRoleFieldErrorCount > 0;
-  const hasPromptValidationErrors = validationSummary.promptPlaceholderErrorCount > 0;
-  const hasReusablePromptValidationErrors = validationSummary.reusablePromptFieldErrorCount > 0;
-  const hasRuntimeAvailabilityErrors = validationSummary.runtimeAvailabilityErrorCount > 0;
-  const hasRepoScriptValidationErrors = validationSummary.repoScriptFieldErrorCount > 0;
-  const isSaveDisabled =
-    saveState.isSaving ||
-    saveState.isLoadingSettings ||
-    !saveState.hasSnapshotDraft ||
-    Boolean(saveState.settingsError) ||
-    saveState.isLoadingRuntimeConfiguration ||
-    Boolean(errors.catalogError) ||
-    Boolean(errors.runtimeExecutablesError) ||
-    hasPromptValidationErrors ||
-    hasReusablePromptValidationErrors ||
-    hasCustomAgentRoleValidationErrors ||
-    hasRuntimeAvailabilityErrors ||
-    validationSummary.hasUnacknowledgedCodexDangerousSettings;
+  const { isSaveDisabled, messages } = resolveSettingsModalFooter({
+    saveState,
+    validationSummary,
+    errors,
+    location,
+  });
 
   return (
     <div className="mt-0 flex shrink-0 items-center justify-start border-t border-border px-6 pb-4 pt-4">
@@ -75,71 +34,11 @@ export function SettingsModalFooter({
       </div>
 
       <div className="flex grow items-center gap-2 text-sm">
-        {!errors.saveError && hasCustomAgentRoleValidationErrors ? (
-          <span className="text-destructive-muted">
-            {validationSummary.customAgentRoleFieldErrorCount} custom role field error
-            {validationSummary.customAgentRoleFieldErrorCount > 1 ? "s" : ""}.
+        {messages.map((message) => (
+          <span key={message.id} className="text-destructive-muted">
+            {message.text}
           </span>
-        ) : null}
-        {errors.saveError ? (
-          <span className="text-destructive-muted">{errors.saveError}</span>
-        ) : (
-          <span />
-        )}
-        {!errors.saveError && hasPromptValidationErrors ? (
-          <span className="text-destructive-muted">
-            {validationSummary.promptPlaceholderErrorCount} prompt placeholder error
-            {validationSummary.promptPlaceholderErrorCount > 1 ? "s" : ""}.
-          </span>
-        ) : null}
-        {!errors.saveError && !hasPromptValidationErrors && hasReusablePromptValidationErrors ? (
-          <span className="text-destructive-muted">
-            {validationSummary.reusablePromptFieldErrorCount} reusable prompt field error
-            {validationSummary.reusablePromptFieldErrorCount > 1 ? "s" : ""}.
-          </span>
-        ) : null}
-        {!errors.saveError &&
-        !hasPromptValidationErrors &&
-        !hasReusablePromptValidationErrors &&
-        hasRuntimeAvailabilityErrors ? (
-          <span className="text-destructive-muted">
-            {validationSummary.runtimeAvailabilityErrorCount} runtime executable error
-            {validationSummary.runtimeAvailabilityErrorCount > 1 ? "s" : ""}.
-          </span>
-        ) : null}
-        {!errors.saveError &&
-        !hasPromptValidationErrors &&
-        !hasReusablePromptValidationErrors &&
-        !hasRuntimeAvailabilityErrors &&
-        validationSummary.hasUnacknowledgedCodexDangerousSettings ? (
-          <span className="text-destructive-muted">
-            Confirm the Codex safety acknowledgement before saving.
-          </span>
-        ) : null}
-        {!errors.saveError &&
-        !hasPromptValidationErrors &&
-        !hasReusablePromptValidationErrors &&
-        !hasRuntimeAvailabilityErrors &&
-        !validationSummary.hasUnacknowledgedCodexDangerousSettings &&
-        hasRepoScriptValidationErrors ? (
-          <span className="text-destructive-muted">
-            {validationSummary.repoScriptFieldErrorCount} dev server field error
-            {validationSummary.repoScriptFieldErrorCount > 1 ? "s" : ""}.
-          </span>
-        ) : null}
-        {errors.catalogError &&
-        (location.section === "runtimes" ||
-          (location.section === "repositories" &&
-            location.repositorySection === "configuration")) ? (
-          <span className="text-destructive-muted">
-            Runtime definitions unavailable: {errors.catalogError}
-          </span>
-        ) : null}
-        {errors.runtimeExecutablesError && location.section === "runtimes" ? (
-          <span className="text-destructive-muted">
-            Runtime executable check failed: {errors.runtimeExecutablesError}
-          </span>
-        ) : null}
+        ))}
       </div>
 
       <div className="flex items-center gap-2">
