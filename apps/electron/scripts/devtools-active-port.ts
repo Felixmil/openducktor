@@ -7,6 +7,7 @@ import { ElectronOperationError, errorMessage } from "../src/effect/electron-err
 import { resolveElectronProfilePath } from "../src/main/electron-app-identity";
 
 const DEVTOOLS_ACTIVE_PORT_FILE_NAME = "DevToolsActivePort";
+const DEVTOOLS_ACTIVE_PORT_READ_RETRY_MS = 50;
 const ELECTRON_DEBUG_PORT_TIMEOUT_MS = 30_000;
 
 export const resolveDevToolsActivePortPath = (developmentInstanceId: string): string =>
@@ -49,6 +50,7 @@ export const waitForDevToolsActivePort = (
   timeoutMs: number = ELECTRON_DEBUG_PORT_TIMEOUT_MS,
 ): Promise<number | null> =>
   new Promise((resolve, reject) => {
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let settled = false;
     let lastFailure: string | null = null;
     const settle = (): void => {
@@ -57,8 +59,24 @@ export const waitForDevToolsActivePort = (
       }
       settled = true;
       clearTimeout(timeout);
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+      }
       watcher.close();
       signal.removeEventListener("abort", handleAbort);
+    };
+    const readAndResolve = (): void => {
+      void readDevToolsActivePort(activePortPath).then((readResult) => {
+        if (!readResult.ok) {
+          lastFailure = readResult.failure;
+          if (!settled) {
+            retryTimer = setTimeout(readAndResolve, DEVTOOLS_ACTIVE_PORT_READ_RETRY_MS);
+          }
+          return;
+        }
+        settle();
+        resolve(readResult.port);
+      });
     };
     const handleAbort = (): void => {
       settle();
@@ -72,14 +90,7 @@ export const waitForDevToolsActivePort = (
       if (fileName !== DEVTOOLS_ACTIVE_PORT_FILE_NAME) {
         return;
       }
-      void readDevToolsActivePort(activePortPath).then((readResult) => {
-        if (!readResult.ok) {
-          lastFailure = readResult.failure;
-          return;
-        }
-        settle();
-        resolve(readResult.port);
-      });
+      readAndResolve();
     });
     const timeout = setTimeout(() => {
       settle();
