@@ -866,28 +866,31 @@ describe("electron dev script", () => {
     let startCalls = 0;
 
     try {
-      await expect(
-        runElectronEffect(
-          runElectronDevLifecycleEffect({
-            buildBundles: () => Effect.void,
-            devToolsActivePortPath: path.join(directory, "missing", "DevToolsActivePort"),
-            electronExecutablePath: "/repo/node_modules/electron/dist/Electron",
-            prepareDevToolsPortFile: () => Effect.void,
-            processHandlers: fakeProcessHandlers.processHandlers,
-            renderer: createFakeRenderer(),
-            startElectronProcess: () => {
-              startCalls += 1;
-              return {
-                exited,
-                kill(signal?: NodeJS.Signals | number) {
-                  killSignals.push(signal);
-                  resolveExit(0);
-                },
-              };
-            },
-          }),
-        ),
-      ).rejects.toThrow("no such file or directory");
+      const lifecycleFailure = runElectronEffect(
+        runElectronDevLifecycleEffect({
+          buildBundles: () => Effect.void,
+          devToolsActivePortPath: path.join(directory, "missing", "DevToolsActivePort"),
+          electronExecutablePath: "/repo/node_modules/electron/dist/Electron",
+          prepareDevToolsPortFile: () => Effect.void,
+          processHandlers: fakeProcessHandlers.processHandlers,
+          renderer: createFakeRenderer(),
+          startElectronProcess: () => {
+            startCalls += 1;
+            return {
+              exited,
+              kill(signal?: NodeJS.Signals | number) {
+                killSignals.push(signal);
+                resolveExit(0);
+              },
+            };
+          },
+        }),
+      );
+
+      await expect(lifecycleFailure).rejects.toThrow("Failed to watch");
+      await expect(lifecycleFailure).rejects.toThrow(
+        "Check the Electron startup output, then rerun `bun run electron:dev:cdp`.",
+      );
 
       expect(startCalls).toBe(1);
       expect(killSignals).toEqual([electronGracefulShutdownSignal(process.platform)]);

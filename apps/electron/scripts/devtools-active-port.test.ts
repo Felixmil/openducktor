@@ -92,6 +92,22 @@ describe("Electron DevTools active port file", () => {
     }
   });
 
+  test("resolves the port after a later write when the creation event reads an incomplete file", async () => {
+    const directory = await createActivePortDirectory();
+    try {
+      const activePortPath = path.join(directory, "DevToolsActivePort");
+      const controller = new AbortController();
+      const portPromise = waitForDevToolsActivePort(activePortPath, controller.signal);
+      await sleep(20);
+      await writeFile(activePortPath, "4");
+      await sleep(50);
+      await writeFile(activePortPath, "45678\n/devtools/browser/example\n");
+      expect(await portPromise).toBe(45_678);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
   test("stops waiting when the lifecycle aborts the wait", async () => {
     const directory = await createActivePortDirectory();
     try {

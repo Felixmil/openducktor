@@ -1,4 +1,4 @@
-import { watch } from "node:fs";
+import { watch, type FSWatcher } from "node:fs";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { resolveOpenDucktorBaseDir } from "@openducktor/host";
@@ -55,16 +55,31 @@ export const waitForDevToolsActivePort = (
   signal: AbortSignal,
 ): Promise<number | null> =>
   new Promise((resolve, reject) => {
+    const watchedDirectory = path.dirname(activePortPath);
     let settled = false;
     let lastFailure: string | null = null;
+    let watcher: FSWatcher | null = null;
+    let fileWatcher: FSWatcher | null = null;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
     const settle = (): void => {
       if (settled) {
         return;
       }
       settled = true;
-      clearTimeout(timeout);
-      watcher.close();
+      if (timeout !== null) {
+        clearTimeout(timeout);
+      }
+      watcher?.close();
+      fileWatcher?.close();
       signal.removeEventListener("abort", handleAbort);
+    };
+    const failWatch = (resource: string, cause: unknown): void => {
+      settle();
+      reject(
+        new Error(
+          `Failed to watch ${resource} for ${DEVTOOLS_ACTIVE_PORT_FILE_NAME}: ${errorMessage(cause)} ${DEVTOOLS_ACTIVE_PORT_RECOVERY_STEP}`,
+        ),
+      );
     };
     const readAndResolve = (): void => {
       void readDevToolsActivePort(activePortPath).then((readResult) => {
@@ -79,6 +94,24 @@ export const waitForDevToolsActivePort = (
         resolve(readResult.port);
       });
     };
+    const attachPortFileWatcher = (): boolean => {
+      try {
+        const nextFileWatcher = watch(activePortPath, readAndResolve);
+        nextFileWatcher.once("error", (cause: unknown) => {
+          failWatch(activePortPath, cause);
+        });
+        fileWatcher = nextFileWatcher;
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const observePortFile = (): void => {
+      if (fileWatcher === null) {
+        attachPortFileWatcher();
+      }
+      readAndResolve();
+    };
     const handleAbort = (): void => {
       settle();
       resolve(null);
@@ -87,19 +120,23 @@ export const waitForDevToolsActivePort = (
       resolve(null);
       return;
     }
-    const watcher = watch(path.dirname(activePortPath), (_eventType, fileName) => {
-      if (fileName !== null && fileName !== DEVTOOLS_ACTIVE_PORT_FILE_NAME) {
-        return;
-      }
-      readAndResolve();
-    });
-    const timeout = setTimeout(() => {
+    try {
+      watcher = watch(watchedDirectory, (_eventType, fileName) => {
+        if (fileName !== null && fileName !== DEVTOOLS_ACTIVE_PORT_FILE_NAME) {
+          return;
+        }
+        observePortFile();
+      });
+    } catch (cause) {
+      failWatch(watchedDirectory, cause);
+      return;
+    }
+    timeout = setTimeout(() => {
       settle();
       reject(new Error(devToolsActivePortTimeoutMessage(lastFailure)));
     }, ELECTRON_DEBUG_PORT_TIMEOUT_MS);
-    watcher.once("error", (cause: unknown) => {
-      settle();
-      reject(cause);
+    watcher?.once("error", (cause: unknown) => {
+      failWatch(watchedDirectory, cause);
     });
     signal.addEventListener("abort", handleAbort, { once: true });
   });
