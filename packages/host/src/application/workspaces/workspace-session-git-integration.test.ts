@@ -361,7 +361,9 @@ describe("Workspace Session commands with real Git and SQLite", () => {
     expect(
       gitCommand("-C", session.executionTarget.workingDirectory, "branch", "--show-current"),
     ).toBe("feature/custom");
-    expect(session.executionTarget.workingDirectory).toEndWith("/custom-review");
+    expect(session.executionTarget.workingDirectory).toBe(
+      path.join(root, "worktrees", "workspace-sessions", "custom-review"),
+    );
   });
 
   test("removes a failed worktree but never its reused branch", async () => {
@@ -412,11 +414,20 @@ describe("Workspace Session commands with real Git and SQLite", () => {
 
   test("reports a linked checkout on its branch field and leaves both worktrees untouched", async () => {
     const h = setup();
-    const occupied = path.join(root, "other | checkout\nwith newline ");
+    const occupied = path.join(
+      root,
+      process.platform === "win32" ? "other checkout" : "other | checkout\nwith newline ",
+    );
+    const occupiedGitPath = occupied.split(path.sep).join("/");
     gitCommand("worktree", "add", "-b", "feature/occupied", occupied);
     await writeFile(path.join(occupied, "owned.txt"), "keep this");
     expect(await Effect.runPromise(h.targetDependencies.git.listBranches(repoPath))).toContainEqual(
-      { name: "feature/occupied", isCurrent: false, isRemote: false, worktreePath: occupied },
+      {
+        name: "feature/occupied",
+        isCurrent: false,
+        isRemote: false,
+        worktreePath: occupiedGitPath,
+      },
     );
     const error = await h.router
       .invoke("workspace_session_create", {
@@ -434,7 +445,7 @@ describe("Workspace Session commands with real Git and SQLite", () => {
       field: "worktree.branchName",
     });
     expect(error).toMatchObject({
-      message: `Branch feature/occupied is already checked out at ${occupied}. Choose another branch or use Current checkout.`,
+      message: `Branch feature/occupied is already checked out at ${occupiedGitPath}. Choose another branch or use Current checkout.`,
     });
     expect(await readFile(path.join(occupied, "owned.txt"), "utf8")).toBe("keep this");
     expect(gitCommand("branch", "--show-current")).toBe("main");

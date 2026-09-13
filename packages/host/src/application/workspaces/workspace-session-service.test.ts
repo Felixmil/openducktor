@@ -173,7 +173,7 @@ describe("host-owned Workspace Session lifecycle", () => {
           }),
       }),
       settingsConfig: createSettingsConfigTestDouble({
-        defaultWorktreeBasePath: () => path.join(database.repoPath, "worktrees"),
+        defaultWorktreeBasePath: () => path.join(database.configDir, "worktrees"),
         resolveConfiguredPath: (value) => value,
         join: path.join,
         pathExists: (value) => Effect.succeed(paths.has(value)),
@@ -368,13 +368,24 @@ describe("host-owned Workspace Session lifecycle", () => {
     const { session } = await Effect.runPromise(h.service.create(worktreeInput()));
     expect(h.calls).toEqual(["worktree", "copy", "hook", "save"]);
     expect(h.state.worktree).toBe(
-      path.join(database.repoPath, "worktrees", "workspace-sessions", "my-feature"),
+      path.join(database.configDir, "worktrees", "workspace-sessions", "my-feature"),
     );
     expect(session.executionTarget.workingDirectory).toBe(h.state.worktree);
     expect(h.state.branch).toBe("odt/my-feature");
     expect(h.state.createBranch).toBe(true);
     expect(h.state.startPoint).toBe("HEAD");
     expect(h.paths.has(h.state.worktree)).toBe(true);
+  });
+
+  test("accepts drive-qualified paths from a Windows worktree port", async () => {
+    const h = setup();
+    h.dependencies.settingsConfig.defaultWorktreeBasePath = () => "C:\\worktrees";
+    h.dependencies.settingsConfig.join = path.win32.join;
+    const { session } = await Effect.runPromise(h.service.create(worktreeInput()));
+    expect(session.executionTarget.workingDirectory).toBe(
+      "C:\\worktrees\\workspace-sessions\\my-feature",
+    );
+    expect(h.calls).toEqual(["worktree", "copy", "hook", "save"]);
   });
 
   test("uses an explicit new branch name without changing the worktree name", async () => {
@@ -386,7 +397,7 @@ describe("host-owned Workspace Session lifecycle", () => {
       }),
     );
     expect(h.state.worktree).toBe(
-      path.join(database.repoPath, "worktrees", "workspace-sessions", "review-ui"),
+      path.join(database.configDir, "worktrees", "workspace-sessions", "review-ui"),
     );
     expect(h.state.branch).toBe("feature/custom-ui");
     expect(h.state.createBranch).toBe(true);
@@ -412,7 +423,7 @@ describe("host-owned Workspace Session lifecycle", () => {
       }),
     );
     expect(h.state.worktree).toBe(
-      path.join(database.repoPath, "worktrees", "workspace-sessions", "existing-review"),
+      path.join(database.configDir, "worktrees", "workspace-sessions", "existing-review"),
     );
     expect(h.state.branch).toBe("feature/existing");
     expect(h.state.createBranch).toBe(false);
@@ -427,11 +438,11 @@ describe("host-owned Workspace Session lifecycle", () => {
       /Git did not confirm.*my-feature.*odt\/my-feature[\s\S]*git add failed after creation/,
     );
     expect(
-      h.paths.has(path.join(database.repoPath, "worktrees", "workspace-sessions", "my-feature")),
+      h.paths.has(path.join(database.configDir, "worktrees", "workspace-sessions", "my-feature")),
     ).toBe(true);
     expect(
       h.registered.has(
-        path.join(database.repoPath, "worktrees", "workspace-sessions", "my-feature"),
+        path.join(database.configDir, "worktrees", "workspace-sessions", "my-feature"),
       ),
     ).toBe(true);
     expect(h.branches.has("refs/heads/odt/my-feature")).toBe(true);
@@ -508,11 +519,11 @@ describe("host-owned Workspace Session lifecycle", () => {
       ),
     );
     expect(h.paths.size).toBe(1);
-    expect(h.paths.has(path.join(database.repoPath, "worktrees", "workspace-sessions", name))).toBe(
-      true,
-    );
     expect(
-      h.registered.has(path.join(database.repoPath, "worktrees", "workspace-sessions", name)),
+      h.paths.has(path.join(database.configDir, "worktrees", "workspace-sessions", name)),
+    ).toBe(true);
+    expect(
+      h.registered.has(path.join(database.configDir, "worktrees", "workspace-sessions", name)),
     ).toBe(true);
     expect(h.branches.has("refs/heads/odt/my-feature")).toBe(true);
     expect(h.calls).not.toContain("remove-worktree");
@@ -625,7 +636,7 @@ describe("host-owned Workspace Session lifecycle", () => {
 
   test("rejects a directory collision without changing the directory or existing branch", async () => {
     const h = setup();
-    h.paths.add(path.join(database.repoPath, "worktrees", "workspace-sessions", "review"));
+    h.paths.add(path.join(database.configDir, "worktrees", "workspace-sessions", "review"));
     h.branches.add("refs/heads/feature/existing");
     await expect(
       Effect.runPromise(
@@ -636,7 +647,7 @@ describe("host-owned Workspace Session lifecycle", () => {
       ),
     ).rejects.toThrow("Worktree directory already exists");
     expect([...h.paths]).toEqual([
-      path.join(database.repoPath, "worktrees", "workspace-sessions", "review"),
+      path.join(database.configDir, "worktrees", "workspace-sessions", "review"),
     ]);
     expect([...h.branches]).toEqual(["refs/heads/feature/existing"]);
     expect(h.calls).toEqual([]);
