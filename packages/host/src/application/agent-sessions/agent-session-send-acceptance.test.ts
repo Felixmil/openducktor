@@ -15,10 +15,12 @@ import { createAgentSessionCommandService } from "./agent-session-command-servic
 import { createAgentSessionLiveStateService } from "./agent-session-live-state-service";
 
 describe("message acceptance through the command and live adapter modules", () => {
-  test.each(["observe", "record", "reject", "invalid"] as const)(
+  test.each(["observe", "record", "reject", "invalid", "detach"] as const)(
     "preserves the send result when %s fails",
     async (stage) => {
       const native = createRuntimeHarness();
+      const acceptedReady = Promise.withResolvers<void>();
+      const returnAccepted = Promise.withResolvers<void>();
       const events: AgentSessionLiveEnvelope[] = [];
       let sends = 0;
       let records = 0;
@@ -57,7 +59,22 @@ describe("message acceptance through the command and live adapter modules", () =
           },
         })(runtime),
       );
-      await Effect.runPromise(live.registerRuntimeAdapter(prepared.adapter));
+      await Effect.runPromise(
+        live.registerRuntimeAdapter({
+          ...prepared.adapter,
+          sendUserMessage: (input) =>
+            prepared.adapter.sendUserMessage(input).pipe(
+              Effect.tap(() =>
+                stage === "detach"
+                  ? Effect.promise(async () => {
+                      acceptedReady.resolve();
+                      await returnAccepted.promise;
+                    })
+                  : Effect.void,
+              ),
+            ),
+        }),
+      );
       await Effect.runPromise(
         prepared.adapter.resumeSession({ ...ref, sessionScope: { kind: "repository" } }),
       );
@@ -89,7 +106,7 @@ describe("message acceptance through the command and live adapter modules", () =
         },
         persistTaskModel: () => Effect.dieMessage("unexpected task model write"),
       });
-      const result = await Effect.runPromise(
+      const sending = Effect.runPromise(
         Effect.either(
           commands.sendUserMessage({
             ...ref,
@@ -98,6 +115,15 @@ describe("message acceptance through the command and live adapter modules", () =
           }),
         ),
       );
+      if (stage === "detach") {
+        await acceptedReady.promise;
+        try {
+          await Effect.runPromise(live.releaseRuntime(runtime.runtimeId));
+        } finally {
+          returnAccepted.resolve();
+        }
+      }
+      const result = await sending;
       expect(sends).toBe(1);
       expect(records).toBe(stage === "record" ? 1 : 0);
       expect(result._tag).toBe("Left");
@@ -113,7 +139,7 @@ describe("message acceptance through the command and live adapter modules", () =
         kind: "agent_session_message_accepted",
         sessionRef: ref,
         acceptedMessage: { messageId: "user-1", message: "Hello" },
-        stage: stage === "observe" ? "live_update" : "record_message",
+        stage: stage === "record" ? "record_message" : "live_update",
       });
       expect(result.left.message).toContain("Do not send the message again");
       expect(events.some((event) => event.type === "transcript_event")).toBe(true);

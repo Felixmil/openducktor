@@ -298,7 +298,7 @@ export function AgentStudioTaskTabs({
             onDragCancel={handleDragCancel}
           >
             <SortableContext items={tabTaskIds} strategy={horizontalListSortingStrategy}>
-              <StudioTabsList aria-label="Agent Studio task tabs">
+              <StudioTabsList aria-label="Task workflow tabs">
                 {tabs.map((tab) => (
                   <SortableAgentStudioTaskTab
                     key={tab.taskId}

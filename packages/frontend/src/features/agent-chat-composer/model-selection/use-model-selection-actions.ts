@@ -9,6 +9,7 @@ import {
 } from "@/features/model-selection/model-selection-state";
 import type { AgentSessionIdentity } from "@/types/agent-orchestrator";
 import { reportModelUpdateError } from "./model-update-error";
+import { resolveModelSelectionPolicy } from "./model-selection-policy";
 
 const findSelectedCatalogModel = (
   catalog: AgentModelCatalog | null,
@@ -59,7 +60,9 @@ export const useModelSelectionActions = ({
   const handleSelectAgentProfile = useCallback(
     (profileId: string) => {
       const selectedModel = findSelectedCatalogModel(selectionCatalog, selectedModelSelection);
-      if (loadedSessionIdentity && selectedModel?.liveSessionUpdates?.profile === false) {
+      if (
+        !resolveModelSelectionPolicy(selectedModel, loadedSessionIdentity !== null).canChangeProfile
+      ) {
         return;
       }
       if (!effectiveRuntimeKind) {
@@ -101,11 +104,7 @@ export const useModelSelectionActions = ({
         return;
       }
       const { model, selection: modelSelection } = resolvedPair;
-      const liveVariants = loadedSessionIdentity ? model.liveSessionUpdates?.variants : undefined;
-      const liveVariantSet = liveVariants ? new Set(liveVariants) : null;
-      const variants = liveVariantSet
-        ? model.variants.filter((variant) => liveVariantSet.has(variant))
-        : model.variants;
+      const { variants } = resolveModelSelectionPolicy(model, loadedSessionIdentity !== null);
       const { variant: _defaultVariant, ...selectionWithoutVariant } = modelSelection;
       const nextSelection: AgentModelSelection = { ...selectionWithoutVariant };
       if (variants[0]) {
@@ -119,8 +118,8 @@ export const useModelSelectionActions = ({
   const handleSelectVariant = useCallback(
     (variant: string) => {
       const selectedModel = findSelectedCatalogModel(selectionCatalog, selectedModelSelection);
-      const liveVariants = selectedModel?.liveSessionUpdates?.variants;
-      if (loadedSessionIdentity && liveVariants && !liveVariants.includes(variant)) {
+      const policy = resolveModelSelectionPolicy(selectedModel, loadedSessionIdentity !== null);
+      if (loadedSessionIdentity && selectedModel && !policy.variants.includes(variant)) {
         return;
       }
       if (!selectedModelSelection) {

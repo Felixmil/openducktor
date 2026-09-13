@@ -76,11 +76,11 @@ describe("notification navigation", () => {
 
   test("adds only transient attention keys to the Agent Studio URL", () => {
     const href = addNotificationAttention(
-      "/agents?task=task-1&session=session-1&agent=build",
+      "/workflows?task=task-1&session=session-1&agent=build",
       target,
     );
     expect(href).toBe(
-      "/agents?task=task-1&session=session-1&agent=build&attention=permission&attentionId=request-1",
+      "/workflows?task=task-1&session=session-1&agent=build&attention=permission&attentionId=request-1",
     );
     expect(href).not.toContain("runtimeKind");
     expect(href).not.toContain("workingDirectory");
@@ -163,7 +163,7 @@ describe("notification navigation", () => {
     finishSelection?.();
     await navigation;
 
-    expect(navigate).toHaveBeenCalledWith("/agents?task=task-1&agent=build");
+    expect(navigate).toHaveBeenCalledWith("/workflows?task=task-1&agent=build");
   });
 
   test("matches only the requested error episode", () => {
@@ -203,7 +203,7 @@ test("passes the exact session identity through transient navigation state", asy
     },
   });
   expect(navigate).toHaveBeenCalledWith(
-    "/agents?task=task-1&session=session-1&agent=build&attention=permission&attentionId=request-1",
+    "/workflows?task=task-1&session=session-1&agent=build&attention=permission&attentionId=request-1",
     { state: { notificationTarget: target } },
   );
 });

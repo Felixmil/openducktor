@@ -7,13 +7,13 @@ date: 2026-02-18
 
 ## Context
 
-Agent Studio is a workflow UI, not a general chat widget. It shows role launch controls, permission requests, questions, task documents, runtime status, tool calls, and host actions.
+The Task Workflows page is a workflow UI, not a general chat widget. It shows role launch controls, permission requests, questions, task documents, runtime status, tool calls, and host actions.
 
 Its sessions also depend on local runtimes, task worktrees, task metadata, shell actions, queued user turns, todos, Git status, and runtime checks. OpenCode and Codex expose different events and transports behind `AgentEnginePort`. A general chat UI library does not own these product rules.
 
 ## Decision
 
-Build Agent Studio from project-owned parts:
+Build the Task Workflows page from project-owned parts:
 
 - React feature components in `packages/frontend`.
 - shadcn components from `packages/frontend/src/components/ui`.
@@ -32,7 +32,7 @@ A third-party UI library can provide a small component that fits the local desig
 
 ## Consequences
 
-- Keep Agent Studio UI changes in step with OpenDucktor contracts and host ownership.
+- Keep Task Workflows UI changes in step with OpenDucktor contracts and host ownership.
 - Use current shadcn components and theme tokens.
 - Extract a shared hook or component only when two OpenDucktor views have the same rule.
 - Put runtime-specific rules in descriptors, adapters, and host orchestration.

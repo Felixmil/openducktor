@@ -76,7 +76,6 @@ export const workspaceSessionCreateInputSchema = z
     location: z.enum(["local_repo_root", "local_worktree"]),
     worktree: workspaceSessionWorktreeInputSchema.optional(),
     manualTitle: z.string().nullable(),
-    confirmUncommittedChanges: z.boolean().default(false),
   })
   .refine((input) => (input.location === "local_worktree") === (input.worktree !== undefined), {
     path: ["worktree"],

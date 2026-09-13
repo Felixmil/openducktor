@@ -9,7 +9,7 @@ import {
   runGit,
   runGitAllowFailure,
 } from "./git-command-runner";
-import { getCurrentBranchUnchecked, getStatusUnchecked, parseBranchRows } from "./git-status";
+import { getCurrentBranchUnchecked, getStatusUnchecked, listBranchesUnchecked } from "./git-status";
 
 const gitOperationError = (message: string, operation: string): HostOperationError =>
   new HostOperationError({ message, operation });
@@ -254,14 +254,7 @@ export const mergeBranch = (
   Effect.gen(function* () {
     const sourceBranch = yield* requireNonEmptyEffect(request.sourceBranch, "source branch");
     const targetBranch = yield* requireNonEmptyEffect(request.targetBranch, "target branch");
-    const branches = parseBranchRows(
-      yield* runGit(runner, workingDirectory, [
-        "for-each-ref",
-        "--format=%(if)%(HEAD)%(then)1%(else)0%(end)|%(refname:short)|%(refname)",
-        "refs/heads",
-        "refs/remotes",
-      ]),
-    );
+    const branches = yield* listBranchesUnchecked(runner, workingDirectory);
     const checkoutTargetBranch = branches.some(
       (branch) => branch.isRemote && branch.name === targetBranch,
     )

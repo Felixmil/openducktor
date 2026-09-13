@@ -64,7 +64,6 @@ export const withWorkspaceSessionTarget = <A, E>(
     worktree: WorkspaceSessionWorktreeInput | undefined;
     repoConfig: RepoConfig;
     location: WorkspaceSessionExecutionTarget["kind"];
-    confirmUncommittedChanges: boolean;
   },
   use: (target: WorkspaceSessionExecutionTarget, retainTarget: () => void) => Effect.Effect<A, E>,
 ): Effect.Effect<A, E | HostError> =>
@@ -116,15 +115,18 @@ export const withWorkspaceSessionTarget = <A, E>(
           }),
         );
       }
-      const changedFiles = yield* git.getStatus(repoPath);
-      if (changedFiles.length > 0 && !input.confirmUncommittedChanges) {
-        return yield* Effect.fail(
-          new HostValidationError({
-            message:
-              "Uncommitted checkout changes will not enter the new worktree. Confirm before creating this session.",
-            field: "confirmUncommittedChanges",
-          }),
+      if (!createBranch) {
+        const existingBranch = (yield* git.listBranches(repoPath)).find(
+          (entry) => !entry.isRemote && entry.name === branch,
         );
+        if (existingBranch?.worktreePath) {
+          return yield* Effect.fail(
+            new HostValidationError({
+              field: "worktree.branchName",
+              message: `Branch ${branch} is already checked out at ${existingBranch.worktreePath}. Choose another branch or use Current checkout.`,
+            }),
+          );
+        }
       }
       const base =
         repoConfig.worktreeBasePath === undefined

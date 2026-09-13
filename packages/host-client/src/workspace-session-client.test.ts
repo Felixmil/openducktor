@@ -34,7 +34,6 @@ test("creates a draft, starts it, and saves draft models through separate host c
     customAgentRoleId: null,
     location: "local_repo_root",
     manualTitle: null,
-    confirmUncommittedChanges: false,
   });
   expect(created).toEqual({ session: draft });
   const ref = { workspaceId: "workspace", sessionId: "chat" };

@@ -72,7 +72,7 @@ export function NotificationAttentionFocus(): ReactElement | null {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (location.pathname !== "/agents" && location.pathname !== "/workspace-sessions") return;
+    if (location.pathname !== "/workflows" && location.pathname !== "/chats") return;
     const search = new URLSearchParams(location.search);
     const kind = search.get(ATTENTION_KIND_QUERY_KEY);
     const id = search.get(ATTENTION_ID_QUERY_KEY);

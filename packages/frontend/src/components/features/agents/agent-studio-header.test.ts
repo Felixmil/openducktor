@@ -203,7 +203,7 @@ describe("AgentStudioHeader", () => {
       }),
     );
 
-    expect(html).toContain("Agent Studio");
+    expect(html).toContain("Task workflows");
   });
 
   test("adds full task title as hover affordance on truncated heading", () => {

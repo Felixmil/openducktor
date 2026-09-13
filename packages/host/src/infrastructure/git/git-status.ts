@@ -12,12 +12,11 @@ import { type GitCommandRunner, runGit, runGitAllowFailure } from "./git-command
 const unmergedStatusPairs = new Set(["DD", "AU", "UD", "UA", "DU", "AA", "UU"]);
 
 export const parseBranchRows = (output: string): GitBranch[] => {
-  const branches = output.split(/\r?\n/).flatMap((line): GitBranch[] => {
-    const trimmed = line.trim();
-    if (!trimmed) {
+  const branches = output.split("\0\n").flatMap((line): GitBranch[] => {
+    if (!line) {
       return [];
     }
-    const [headMarker, name, fullRef] = trimmed.split("|", 3);
+    const [headMarker, name, fullRef, worktreePath] = line.split("\0");
     if (!headMarker || !name || !fullRef) {
       return [];
     }
@@ -25,13 +24,13 @@ export const parseBranchRows = (output: string): GitBranch[] => {
     if (isRemote && fullRef.endsWith("/HEAD")) {
       return [];
     }
-    return [
-      {
-        name,
-        isCurrent: headMarker === "1" || headMarker === "*",
-        isRemote,
-      },
-    ];
+    const branch: GitBranch = {
+      name,
+      isCurrent: headMarker === "1" || headMarker === "*",
+      isRemote,
+    };
+    if (worktreePath) branch.worktreePath = worktreePath;
+    return [branch];
   });
   branches.sort((left, right) => {
     if (left.isCurrent !== right.isCurrent) {
@@ -44,6 +43,17 @@ export const parseBranchRows = (output: string): GitBranch[] => {
   });
   return branches;
 };
+
+export const listBranchesUnchecked = (runner: GitCommandRunner, workingDirectory: string) =>
+  Effect.map(
+    runGit(runner, workingDirectory, [
+      "for-each-ref",
+      "--format=%(if)%(HEAD)%(then)1%(else)0%(end)%00%(refname:short)%00%(refname)%00%(worktreepath)%00",
+      "refs/heads",
+      "refs/remotes",
+    ]),
+    parseBranchRows,
+  );
 export const parseRemoteNames = (output: string): string[] =>
   output
     .split(/\r?\n/)

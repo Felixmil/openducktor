@@ -64,7 +64,7 @@ const resolveRepositoryAvailabilityNotice = ({
     return {
       message: requiredWorkspaceRepoPath
         ? `The repository at ${requiredWorkspaceRepoPath} is not available in Settings. Choose a repository explicitly or close Settings.`
-        : "This Agent Studio panel has no repository to configure. Choose a repository explicitly or close Settings.",
+        : "This task workflow panel has no repository to configure. Choose a repository explicitly or close Settings.",
       role: "alert",
     };
   }

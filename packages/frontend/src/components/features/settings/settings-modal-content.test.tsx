@@ -399,7 +399,7 @@ describe("settings modal content", () => {
     expect(html).not.toContain("Select a repository to edit repository scripts");
   });
 
-  test("renders general section with automatic Agent Studio tab setting", () => {
+  test("renders general section with automatic Task workflows tab setting", () => {
     const controller = createMockController(createMockSnapshot());
 
     const html = renderToStaticMarkup(
@@ -420,7 +420,7 @@ describe("settings modal content", () => {
       }),
     );
 
-    expect(html).toContain("Open Agent Studio tab for background sessions");
+    expect(html).toContain("Open Task workflows tab for background sessions");
     expect(html).toContain('aria-checked="true"');
   });
 

@@ -80,6 +80,8 @@ export const createAgentSessionActions = ({
 
   const sendAgentMessage = createSendAgentMessage({
     workspaceRepoPath,
+    repoEpochRef,
+    currentWorkspaceRepoPathRef,
     adapter,
     readSessionSnapshot,
     updateSession,

@@ -3,13 +3,16 @@ import {
   DEFAULT_AGENT_RUNTIMES,
   OPENCODE_RUNTIME_DESCRIPTOR,
   type WorkspaceSessionCreateInput,
+  type WorkspaceSessionCreateResult,
   repoConfigSchema,
 } from "@openducktor/contracts";
 import type { AgentModelCatalog } from "@openducktor/core";
 import { HostInvokeError } from "@openducktor/host-client";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { act, type ComponentProps } from "react";
-import { QueryProvider } from "@/lib/query-provider";
+import { createQueryClient } from "@/lib/query-client";
+import { gitQueryKeys } from "@/state/queries/git";
 import { configureShellBridge, createUnavailableShellBridge } from "@/lib/shell-bridge";
 import {
   ChecksStateContext,
@@ -21,7 +24,7 @@ import { createSettingsSnapshotFixture } from "@/test-utils/shared-test-fixtures
 import { WorkspaceSessionCreateDialog } from "./workspace-session-create-dialog";
 
 function renderCreation(
-  create: (input: WorkspaceSessionCreateInput) => Promise<never>,
+  create: (input: WorkspaceSessionCreateInput) => Promise<WorkspaceSessionCreateResult>,
   onClose = () => {},
   onCreated: () => void = () => {
     throw new Error("Unexpected successful creation");
@@ -99,7 +102,13 @@ function renderCreation(
             defaultRuntimeKind: "opencode",
           }),
         gitGetBranches: async () => [
-          { name: "main", isRemote: false, isCurrent: true },
+          { name: "main", isRemote: false, isCurrent: true, worktreePath: "/repo" },
+          {
+            name: "feature/occupied",
+            isRemote: false,
+            isCurrent: false,
+            worktreePath: "/other checkout",
+          },
           { name: "feature/existing", isRemote: false, isCurrent: false },
           { name: "origin/remote-only", isRemote: true, isCurrent: false },
         ],
@@ -111,8 +120,9 @@ function renderCreation(
       },
     }),
   );
-  return render(
-    <QueryProvider useIsolatedClient>
+  const queryClient = createQueryClient();
+  const view = render(
+    <QueryClientProvider client={queryClient}>
       <WorkspaceStateContext value={workspaceState}>
         <ChecksStateContext
           value={{
@@ -133,8 +143,9 @@ function renderCreation(
           </RuntimeDefinitionsContext>
         </ChecksStateContext>
       </WorkspaceStateContext>
-    </QueryProvider>,
+    </QueryClientProvider>,
   );
+  return { ...view, queryClient };
 }
 
 async function selectModel(view: ReturnType<typeof renderCreation>) {
@@ -167,6 +178,21 @@ test("matches the task modal width, separates footer actions and disables name a
     expect(cancel.parentElement?.firstElementChild).toBe(cancel);
     expect(cancel.parentElement?.classList.contains("justify-between")).toBe(true);
     expect(cancel.parentElement?.classList.contains("sm:justify-between")).toBe(true);
+  } finally {
+    view.unmount();
+    configureShellBridge(createUnavailableShellBridge());
+  }
+});
+
+test("omits checkout help text for both work locations", () => {
+  const view = renderCreation(async () => {
+    throw new Error("Unexpected creation");
+  });
+  try {
+    expect(view.queryByText("Changes apply directly to this workspace checkout.")).toBeNull();
+    fireEvent.click(view.getByRole("radio", { name: /New worktree/ }));
+    expect(view.queryByText("Uncommitted changes stay in the current checkout.")).toBeNull();
+    expect(view.getByLabelText("Worktree name")).not.toBeNull();
   } finally {
     view.unmount();
     configureShellBridge(createUnavailableShellBridge());
@@ -297,7 +323,6 @@ test("creation keeps Role, Runtime Profile, Effort and location separate and blo
       location: "local_worktree",
       worktree: { mode: "from_name", name: "my-feature", branchName: null },
       manualTitle: "My session",
-      confirmUncommittedChanges: false,
     });
     const name = view.getByLabelText("Name optional");
     const fieldset = name.closest("fieldset");
@@ -317,19 +342,36 @@ test("creation keeps Role, Runtime Profile, Effort and location separate and blo
   }
 });
 
-test("dirty checkout confirmation requires a second explicit create and Cancel sends no confirmation", async () => {
+test("creates a worktree chat with one request and no confirmation step", async () => {
   const requests: WorkspaceSessionCreateInput[] = [];
-  let closed = 0;
+  let created = 0;
   const view = renderCreation(
     async (input) => {
       requests.push(input);
-      throw new HostInvokeError("Confirm dirty checkout", {
-        kind: "workspace_session_confirmation",
-        field: "confirmUncommittedChanges",
-      });
+      return {
+        session: {
+          id: "created-chat",
+          runtimeKind: input.runtimeKind,
+          externalSessionId: null,
+          executionTarget: {
+            kind: "local_worktree",
+            workingDirectory: "/worktrees/my-feature",
+            branchName: "odt/my-feature",
+            worktreeState: "present",
+          },
+          selectedModel: input.selectedModel,
+          roleSnapshot: null,
+          generatedTitle: null,
+          manualTitle: null,
+          createdAt: 1000,
+          updatedAt: 1000,
+          archivedAt: null,
+        },
+      };
     },
+    () => {},
     () => {
-      closed += 1;
+      created += 1;
     },
   );
   try {
@@ -337,18 +379,16 @@ test("dirty checkout confirmation requires a second explicit create and Cancel s
     fireEvent.click(view.getByRole("radio", { name: /New worktree/ }));
     fireEvent.change(view.getByLabelText("Worktree name"), { target: { value: "my-feature" } });
     fireEvent.click(view.getByRole("button", { name: "Create chat" }));
-    await view.findByText(
-      "This checkout has uncommitted changes. The new worktree will not include them.",
-      {},
-      { timeout: 800 },
-    );
-    fireEvent.click(view.getByRole("button", { name: "Cancel" }));
-    expect(closed).toBe(1);
-    expect(requests.map((input) => input.confirmUncommittedChanges)).toEqual([false]);
-    fireEvent.click(view.getByRole("button", { name: "Create without uncommitted changes" }));
-    await waitFor(() => expect(requests.length).toBe(2), { timeout: 800 });
-    expect(requests[1]?.confirmUncommittedChanges).toBe(true);
-    expect(requests[1]?.customAgentRoleId).toBeNull();
+    await waitFor(() => expect(created).toBe(1), { timeout: 800 });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).not.toHaveProperty("confirmUncommittedChanges");
+    expect(requests[0]?.worktree).toEqual({
+      mode: "from_name",
+      name: "my-feature",
+      branchName: null,
+    });
+    expect(view.queryByRole("alert")).toBeNull();
+    expect(view.queryByRole("button", { name: "Create without uncommitted changes" })).toBeNull();
   } finally {
     view.unmount();
     configureShellBridge(createUnavailableShellBridge());
@@ -414,6 +454,12 @@ test("Existing branch accepts slash-separated worktree names and submits a safe 
     await waitFor(() => expect(selector.hasAttribute("disabled")).toBe(false), { timeout: 800 });
     fireEvent.click(selector);
     expect(view.queryByRole("option", { name: /origin\/remote-only/ })).toBeNull();
+    for (const name of [/main/, /feature\/occupied/]) {
+      const option = view.getByRole("option", { name });
+      expect(option.getAttribute("aria-disabled")).toBe("true");
+      fireEvent.click(option);
+      expect(view.getByRole("button", { name: "Create chat" }).hasAttribute("disabled")).toBe(true);
+    }
     fireEvent.click(view.getByRole("option", { name: /feature\/existing/ }));
     expect(view.getByDisplayValue("feature-existing")).not.toBeNull();
     expect(view.queryByRole("button", { name: "Advanced" })).toBeNull();
@@ -434,6 +480,88 @@ test("Existing branch accepts slash-separated worktree names and submits a safe 
     configureShellBridge(createUnavailableShellBridge());
   }
 });
+
+test("blocks submission when refreshed data shows the selected branch is now checked out", async () => {
+  const requests: WorkspaceSessionCreateInput[] = [];
+  const view = renderCreation(async (input) => {
+    requests.push(input);
+    throw new Error("Unexpected creation");
+  });
+  try {
+    await selectModel(view);
+    fireEvent.click(view.getByRole("radio", { name: /New worktree/ }));
+    fireEvent.mouseDown(view.getByRole("tab", { name: "Existing branch" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    const selector = await view.findByRole("button", { name: "Existing branch" });
+    await waitFor(() => expect(selector.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(selector);
+    fireEvent.click(view.getByRole("option", { name: /feature\/existing/ }));
+    const create = view.getByRole("button", { name: "Create chat" });
+    expect(create.hasAttribute("disabled")).toBe(false);
+    await act(async () => {
+      view.queryClient.setQueryData(gitQueryKeys.branches("/repo"), [
+        {
+          name: "feature/existing",
+          isCurrent: false,
+          isRemote: false,
+          worktreePath: "/another checkout",
+        },
+      ]);
+    });
+    await waitFor(() => expect(create.hasAttribute("disabled")).toBe(true));
+    expect(view.getByRole("alert").textContent).toContain(
+      "already checked out at /another checkout",
+    );
+    const form = create.closest("form");
+    if (!form) throw new Error("Creation form is missing");
+    fireEvent.submit(form);
+    expect(requests).toEqual([]);
+  } finally {
+    view.unmount();
+    configureShellBridge(createUnavailableShellBridge());
+  }
+});
+
+test.each(["worktree.name", "worktree.branchName"] as const)(
+  "shows host validation next to %s and clears it after a worktree edit",
+  async (field) => {
+    const message =
+      field === "worktree.name"
+        ? "Worktree directory already exists. Choose another name."
+        : "Branch already exists. Choose another name or use Existing branch.";
+    const requests: WorkspaceSessionCreateInput[] = [];
+    const view = renderCreation(async (input) => {
+      requests.push(input);
+      throw new HostInvokeError(message, { kind: "workspace_session_validation", field });
+    });
+    try {
+      await selectModel(view);
+      fireEvent.click(view.getByRole("radio", { name: /New worktree/ }));
+      const name = view.getByLabelText("Worktree name");
+      fireEvent.change(name, { target: { value: "collision" } });
+      fireEvent.click(view.getByRole("button", { name: "Create chat" }));
+      const alert = await view.findByRole("alert");
+      expect(alert.textContent).toBe(message);
+      expect(alert.id).toBe(
+        field === "worktree.name"
+          ? "workspace-session-worktree-name-error"
+          : "workspace-session-branch-error",
+      );
+      if (field === "worktree.name") expect(name.getAttribute("aria-invalid")).toBe("true");
+      fireEvent.change(name, { target: { value: "another-name" } });
+      expect(view.queryByRole("alert")).toBeNull();
+      expect(view.getByRole("button", { name: "Create chat" }).hasAttribute("disabled")).toBe(
+        false,
+      );
+      expect(requests).toHaveLength(1);
+    } finally {
+      view.unmount();
+      configureShellBridge(createUnavailableShellBridge());
+    }
+  },
+);
 
 test("returning to Current checkout omits all worktree options", async () => {
   const requests: WorkspaceSessionCreateInput[] = [];

@@ -96,7 +96,7 @@ export const navigateToNotificationTarget = async (
       dependencies.reportStale("The exact Workspace Session is no longer available.");
       return;
     }
-    const href = `/workspace-sessions?session=${encodeURIComponent(session.id)}`;
+    const href = `/chats?session=${encodeURIComponent(session.id)}`;
     dependencies.navigate(
       target.type === "agent_session" ? href : addNotificationAttention(href, target),
       { state: { notificationTarget: target } },

@@ -27,7 +27,7 @@ import { Label } from "@/components/ui/label";
 import { errorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { host } from "@/state/operations/host";
-import { invalidateRepoBranchesQuery } from "@/state/queries/git";
+import { invalidateRepoBranchesQuery, repoBranchesQueryOptions } from "@/state/queries/git";
 import {
   customAgentRolesQueryOptions,
   updateWorkspaceSessionQueries,
@@ -55,14 +55,27 @@ export function WorkspaceSessionCreateDialog({
   const [roleId, setRoleId] = useState("none");
   const [location, setLocation] =
     useState<WorkspaceSessionCreateInput["location"]>("local_repo_root");
-  const [confirmChanges, setConfirmChanges] = useState(false);
   const [worktree, setWorktree] = useState<WorkspaceSessionWorktreeInput>({
     mode: "from_name",
     name: "",
     branchName: null,
   });
   const parsedWorktree = workspaceSessionWorktreeInputSchema.safeParse(worktree);
-  const worktreeValid = location === "local_repo_root" || parsedWorktree.success;
+  const branches = useQuery({
+    ...repoBranchesQueryOptions(workspace.repoPath),
+    enabled: location === "local_worktree" && worktree.mode === "from_branch",
+  });
+  const selectedBranch = branches.data?.find(
+    (branch) => !branch.isRemote && branch.name === worktree.branchName,
+  );
+  const worktreeValid =
+    location === "local_repo_root" ||
+    (parsedWorktree.success &&
+      (worktree.mode === "from_name" ||
+        (!branches.isPending &&
+          !branches.isError &&
+          selectedBranch &&
+          !selectedBranch.worktreePath)));
   const mounted = useMountedRef();
   const create = useMutation({
     mutationFn: (input: WorkspaceSessionCreateInput) => host.workspaceSessionCreate(input),
@@ -72,11 +85,22 @@ export function WorkspaceSessionCreateDialog({
         void invalidateRepoBranchesQuery(queryClient, workspace.repoPath);
       if (mounted.current) onCreated(result.session);
     },
+    onError: (error) => {
+      if (
+        error instanceof HostInvokeError &&
+        error.failure?.kind === "workspace_session_validation"
+      )
+        void invalidateRepoBranchesQuery(queryClient, workspace.repoPath);
+    },
   });
-  const submit = (confirmUncommittedChanges: boolean) => {
+  const worktreeError =
+    create.error instanceof HostInvokeError &&
+    create.error.failure?.kind === "workspace_session_validation"
+      ? { field: create.error.failure.field, message: create.error.message }
+      : null;
+  const submit = () => {
     const selection = model.selection;
     if (!selection?.runtimeKind || create.isPending || !worktreeValid) return;
-    setConfirmChanges(false);
     const input: WorkspaceSessionCreateInput = {
       workspaceId: workspace.workspaceId,
       runtimeKind: selection.runtimeKind,
@@ -84,20 +108,10 @@ export function WorkspaceSessionCreateDialog({
       customAgentRoleId: roleId === "none" ? null : roleId,
       location,
       manualTitle: name,
-      confirmUncommittedChanges,
     };
     if (location === "local_worktree" && parsedWorktree.success)
       input.worktree = parsedWorktree.data;
-    create.mutate(input, {
-      onError: (error) => {
-        if (
-          error instanceof HostInvokeError &&
-          error.failure?.kind === "workspace_session_confirmation" &&
-          error.failure.field === "confirmUncommittedChanges"
-        )
-          setConfirmChanges(true);
-      },
-    });
+    create.mutate(input);
   };
   return (
     <Dialog
@@ -115,7 +129,7 @@ export function WorkspaceSessionCreateDialog({
           className="flex min-h-0 flex-col"
           onSubmit={(event) => {
             event.preventDefault();
-            submit(false);
+            submit();
           }}
         >
           <fieldset disabled={create.isPending} className="contents">
@@ -231,8 +245,8 @@ export function WorkspaceSessionCreateDialog({
                       aria-checked={location === target.kind}
                       variant="outline"
                       onClick={() => {
+                        create.reset();
                         setLocation(target.kind);
-                        setConfirmChanges(false);
                       }}
                       className={cn(
                         "h-auto items-start justify-start gap-3 whitespace-normal p-3 text-left",
@@ -250,40 +264,24 @@ export function WorkspaceSessionCreateDialog({
                     </Button>
                   ))}
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  {location === "local_worktree"
-                    ? "Uncommitted changes stay in the current checkout."
-                    : "Changes apply directly to this workspace checkout."}
-                </p>
               </fieldset>
               {location === "local_worktree" && (
                 <WorkspaceSessionWorktreeFields
                   workspace={workspace}
                   value={worktree}
                   disabled={create.isPending}
+                  branches={branches}
+                  error={worktreeError}
                   onChange={(value) => {
+                    create.reset();
                     setWorktree(value);
-                    setConfirmChanges(false);
                   }}
                 />
               )}
-              {create.error && !confirmChanges && (
+              {create.error && !worktreeError && (
                 <p role="alert" className="text-sm text-destructive">
                   {errorMessage(create.error)}
                 </p>
-              )}
-              {confirmChanges && (
-                <div
-                  role="alert"
-                  className="space-y-2 rounded-md border border-border bg-muted p-3"
-                >
-                  <p className="text-sm">
-                    This checkout has uncommitted changes. The new worktree will not include them.
-                  </p>
-                  <Button type="button" onClick={() => submit(true)}>
-                    Create without uncommitted changes
-                  </Button>
-                </div>
               )}
             </DialogBody>
             <DialogFooter className="mt-0 justify-between border-t border-border bg-muted/30 px-6 py-4 sm:justify-between">

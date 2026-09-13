@@ -1,6 +1,6 @@
 # Agent orchestrator module map
 
-Use this map before you change `packages/frontend/src/state/operations/agent-orchestrator` or an Agent Studio session flow.
+Use this map before you change `packages/frontend/src/state/operations/agent-orchestrator` or a Task Workflows session flow.
 
 The host owns live session truth for task and workspace sessions. SQLite owns their durable records. The renderer holds one projection of those sources. History loads only for the selected session.
 
@@ -64,7 +64,7 @@ One command module owns session control. Task and workspace policy adapters supp
 - Report a failure after message acceptance without sending the message again.
 - Keep task start and workspace start as explicit durable operations. Generic native start or fork does not prove durable ownership.
 
-`AgentSessionMessageAcceptedError` retains a validated native message, its exact session reference, and the failed host stage. All runtime control adapters preserve acceptance across later live updates. The shared command uses the same error for a failed metadata save. The router sends its `agent_session_message_accepted` failure through the existing host error contract. A rejection or invalid native response does not prove acceptance.
+`AgentSessionMessageAcceptedError` retains a validated native message, its exact session reference, and the failed host stage. All runtime control adapters preserve acceptance across later live updates. The shared live module also preserves acceptance when the runtime detaches before the send returns. The shared command uses the same error for a failed metadata save. The router sends its `agent_session_message_accepted` failure through the existing host error contract. A rejection or invalid native response does not prove acceptance.
 
 `WorkspaceSessionStorePort.recordAcceptedMessage` validates and saves the generated title, monotonic activity time, and optional accepted model in one existing SQLite transaction. The workspace persistence policy publishes the returned record after commit. A publication failure cannot undo the save. Model-settings changes retain the stored `profileId`, including after compensation.
 
@@ -243,6 +243,7 @@ Rules:
 - Pass selected identity and loaded session as separate facts. Do not make a composer session copy.
 - Use the selected key for thread layout and autofocus. Do not derive it again from loaded state.
 - Validate runtime, provider, and model against the target catalog before a model update.
+- Apply live model restrictions only when a native session identity exists. `model-selection-policy.ts` supplies the same profile and variant rules to visible options and selection actions. A saved workspace draft still uses startup model options.
 - The shared host command updates the native model, saves the durable choice, then publishes metadata. If the save fails, restore the previous native model before releasing the owner permit. A publication failure after a successful save must not roll back the native model.
 - `model-selection-preferences.ts` owns runtime and model fallback order.
 
@@ -256,6 +257,8 @@ Owns start, reuse, fork, send, stop, model update, pending-input replies, and wo
 
 The shared send handler checks a typed accepted-message failure before ordinary send recovery. It upserts the native message once and adds a scoped failure notice. It completes the send action without restoring the accepted draft or resetting running state and pending input. Both task and workspace actions use this handler. Runtime-service conversion checks the exact session reference and preserves accepted model fields.
 
+Before sending to a stopped workspace session, the shared send handler resumes the same native session. It checks repository continuity and retains newer live activity and pending input. A failed resume sends no message. Stopped task sessions still require their task workflow action.
+
 Rules:
 
 - Action availability uses task, role, launch action, and loaded session. Transcript loading belongs to the selected view.
@@ -266,8 +269,8 @@ Rules:
 - Stop preparation failures before host control succeeds. If later frontend work fails, keep the task session stored by the host.
 - Only the explicit workflow start path can register task ownership. Runtime events cannot attach an unrelated root session.
 - A fresh or forked start holds `starting` until its first message finishes or fails.
-- `RunSessionStartWorkflow` awaits the first message. It reports a send failure in `postStartActionError`. Kanban and Agent Studio supply its local recovery callback. The runner invokes that callback before notification delivery, which suppresses the generic in-app toast for that failure and keeps OS and sound policy unchanged.
-- Agent Studio, Kanban, and Autopilot call the same `RunSessionStartWorkflow` command.
+- `RunSessionStartWorkflow` awaits the first message. It reports a send failure in `postStartActionError`. Kanban and the Task Workflows page supply its local recovery callback. The runner invokes that callback before notification delivery, which suppresses the generic in-app toast for that failure and keeps OS and sound policy unchanged.
+- The Task Workflows page, Kanban, and Autopilot call the same `RunSessionStartWorkflow` command.
 - Sessionless send uses the same start-availability rule as an explicit start.
 - The start modal reads runtime definitions from runtime availability context.
 - Action state owns busy, waiting, queued, and send-block rules. It does not copy identity or runtime-data loading.
@@ -282,7 +285,7 @@ Owns read-only history, preference for an existing live session, live pending in
 
 Files: `state/queries/agent-sessions.ts`, `session-read-model/task-session-records.ts`, `session-read-model/use-task-session-records.ts`, `hooks/use-repo-session-read-model.ts`, and `session-read-model/agent-session-workflow-records.ts`.
 
-Owns per-task durable record queries and task session history for Agent Studio, Kanban, task details, and Autopilot.
+Owns per-task durable record queries and task session history for the Task Workflows page, Kanban, task details, and Autopilot.
 
 Rules:
 

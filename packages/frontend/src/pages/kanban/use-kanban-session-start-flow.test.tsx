@@ -65,7 +65,7 @@ const agentStudioSessionUrl = (
     session: session.externalSessionId,
     agent: role,
   });
-  return `/agents?${search.toString()}`;
+  return `/workflows?${search.toString()}`;
 };
 
 const createModalCatalog = (): AgentModelCatalog => ({
@@ -1127,7 +1127,7 @@ describe("useKanbanSessionStartFlow", () => {
       state.onOpenSession("TASK-404", "qa");
     });
 
-    expect(args.navigate).toHaveBeenCalledWith("/agents?task=TASK-404&agent=qa");
+    expect(args.navigate).toHaveBeenCalledWith("/workflows?task=TASK-404&agent=qa");
 
     await harness.unmount();
   });

@@ -43,6 +43,8 @@ test.each(["rejected", "accepted"] as const)(
     let sends = 0;
     const sendAgentMessage = createSendAgentMessage({
       workspaceRepoPath: "/repo",
+      repoEpochRef: { current: 1 },
+      currentWorkspaceRepoPathRef: { current: "/repo" },
       readSessionSnapshot: store.getSessionSnapshot,
       updateSession: store.updateSession,
       prepareSessionSend: async () => ({}),
@@ -50,6 +52,9 @@ test.each(["rejected", "accepted"] as const)(
       clearSessionTurnState: () => {},
       recordTurnUserMessageTimestamp: () => undefined,
       adapter: {
+        resumeSession: async () => {
+          throw new Error("Unexpected resume");
+        },
         sendUserMessage: async (input) => {
           sends += 1;
           expect(input.externalSessionId).toBe("native");

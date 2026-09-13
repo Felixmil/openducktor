@@ -56,22 +56,26 @@ export function WorkspaceSessionRenameDialog({
       }}
     >
       <DialogContent
-        className="sm:max-w-md"
+        className="p-0 sm:max-w-md"
         onCloseAutoFocus={onCloseAutoFocus}
         closeButton={rename.isPending ? null : undefined}
       >
         <form
+          className="flex min-h-0 flex-col"
           onSubmit={(event) => {
             event.preventDefault();
             if (canSave) rename.mutate(draft.trim());
           }}
         >
-          <DialogHeader>
+          <DialogHeader className="border-b border-border px-5 py-4 pr-12">
             <DialogTitle>Rename chat</DialogTitle>
             <DialogDescription>Leave the name blank to use the generated title.</DialogDescription>
           </DialogHeader>
-          <fieldset disabled={rename.isPending}>
-            <DialogBody className="mt-4 flex flex-col gap-1.5">
+          <fieldset
+            disabled={rename.isPending}
+            className="flex min-h-0 flex-1 flex-col border-0 p-0"
+          >
+            <DialogBody className="flex flex-col gap-1.5 px-5 py-4">
               <Label htmlFor="workspace-session-rename">Name</Label>
               <Input
                 id="workspace-session-rename"
@@ -86,7 +90,7 @@ export function WorkspaceSessionRenameDialog({
                 </p>
               )}
             </DialogBody>
-            <DialogFooter>
+            <DialogFooter className="mt-0 justify-between border-t border-border px-5 py-4">
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancel
               </Button>

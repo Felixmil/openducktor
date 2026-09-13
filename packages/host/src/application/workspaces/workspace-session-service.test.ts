@@ -39,7 +39,6 @@ const input = (): WorkspaceSessionCreateInput => ({
   customAgentRoleId: "role-1",
   location: "local_repo_root",
   manualTitle: "  My   session  ",
-  confirmUncommittedChanges: false,
 });
 
 const worktreeInput = (): WorkspaceSessionCreateInput => ({
@@ -135,6 +134,14 @@ describe("host-owned Workspace Session lifecycle", () => {
           ),
         referenceExists: (_repo, reference) =>
           Effect.succeed(reference === "origin/main" || state.collision || branches.has(reference)),
+        listBranches: () =>
+          Effect.succeed(
+            [...branches].map((reference) => ({
+              name: reference.replace(/^refs\/heads\//, ""),
+              isCurrent: false,
+              isRemote: false,
+            })),
+          ),
         shareGitCommonDirectory: () => Effect.succeed(true),
         isRegisteredWorktree: (_repo, directory) => Effect.succeed(registered.has(directory)),
         createWorktree: (_repo, directory, branch, createBranch, startPoint) =>
@@ -354,13 +361,7 @@ describe("host-owned Workspace Session lifecycle", () => {
   test("worktree creation uses committed HEAD and Workspace setup before runtime startup", async () => {
     const h = setup();
     h.state.changed = true;
-    await expect(Effect.runPromise(h.service.create(worktreeInput()))).rejects.toThrow(
-      "Uncommitted checkout changes",
-    );
-    expect(h.calls).toEqual([]);
-    const { session } = await Effect.runPromise(
-      h.service.create({ ...worktreeInput(), confirmUncommittedChanges: true }),
-    );
+    const { session } = await Effect.runPromise(h.service.create(worktreeInput()));
     expect(h.calls).toEqual(["worktree", "copy", "hook", "save"]);
     expect(h.state.worktree).toBe("/worktrees/workspace-sessions/my-feature");
     expect(session.executionTarget.workingDirectory).toBe(h.state.worktree);
@@ -382,6 +383,15 @@ describe("host-owned Workspace Session lifecycle", () => {
     expect(h.state.branch).toBe("feature/custom-ui");
     expect(h.state.createBranch).toBe(true);
     expect(h.state.startPoint).toBe("HEAD");
+  });
+
+  test("worktree creation does not read the source checkout status", async () => {
+    const h = setup();
+    h.dependencies.git.getStatus = () =>
+      Effect.dieMessage("Creation must not read checkout status");
+    const { session } = await Effect.runPromise(h.service.create(worktreeInput()));
+    expect(session.executionTarget.kind).toBe("local_worktree");
+    expect(h.calls).toEqual(["worktree", "copy", "hook", "save"]);
   });
 
   test("checks out an existing branch directly without creating another branch", async () => {

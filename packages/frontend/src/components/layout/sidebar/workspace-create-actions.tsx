@@ -1,4 +1,4 @@
-import { MessageCirclePlus, ListPlus } from "lucide-react";
+import { MessageCirclePlus, Plus } from "lucide-react";
 import { type ReactElement, useState } from "react";
 import { useNavigate } from "react-router";
 import { TaskCreateModal } from "@/components/features/task-create/task-create-modal";
@@ -36,7 +36,7 @@ export default function WorkspaceCreateActions({
           disabled={!workspace}
           onClick={() => setTaskOpen(true)}
         >
-          <ListPlus aria-hidden="true" />
+          <Plus data-icon="inline-start" aria-hidden="true" />
           {!compact && "New task"}
         </Button>
         <Button
@@ -62,7 +62,7 @@ export default function WorkspaceCreateActions({
           onClose={() => setChatOpen(false)}
           onCreated={(session) => {
             setChatOpen(false);
-            navigate(`/workspace-sessions?session=${encodeURIComponent(session.id)}`);
+            navigate(`/chats?session=${encodeURIComponent(session.id)}`);
           }}
         />
       )}

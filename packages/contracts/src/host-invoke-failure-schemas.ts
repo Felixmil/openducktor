@@ -9,6 +9,10 @@ import { terminalFailureSchema } from "./terminal-schemas";
 
 export const hostInvokeFailureSchema = z.discriminatedUnion("kind", [
   z.strictObject({
+    kind: z.literal("workspace_session_validation"),
+    field: z.enum(["worktree.name", "worktree.branchName"]),
+  }),
+  z.strictObject({
     kind: z.literal("agent_session_message_accepted"),
     sessionRef: agentSessionLiveRefSchema,
     acceptedMessage: acceptedAgentUserMessageSchema,
@@ -16,7 +20,7 @@ export const hostInvokeFailureSchema = z.discriminatedUnion("kind", [
   }),
   z.strictObject({
     kind: z.literal("workspace_session_confirmation"),
-    field: z.enum(["confirmUncommittedChanges", "confirmStop"]),
+    field: z.literal("confirmStop"),
   }),
   z
     .object({ kind: z.literal("runtime_query"), runtimeQueryFailure: runtimeQueryFailureSchema })

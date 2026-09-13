@@ -1,6 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import { hostInvokeFailureSchema } from "./host-invoke-failure-schemas";
 
+test.each(["worktree.name", "worktree.branchName"])("accepts validation for %s", (field) => {
+  const failure = { kind: "workspace_session_validation", field };
+  expect(hostInvokeFailureSchema.parse(failure)).toEqual(failure);
+  expect(hostInvokeFailureSchema.safeParse({ ...failure, field: "unrelated" }).success).toBe(false);
+});
+
+test("workspace session confirmation only accepts stopping a session", () => {
+  const failure = { kind: "workspace_session_confirmation", field: "confirmStop" };
+  expect(hostInvokeFailureSchema.parse(failure)).toEqual(failure);
+  expect(
+    hostInvokeFailureSchema.safeParse({ ...failure, field: "confirmUncommittedChanges" }).success,
+  ).toBe(false);
+});
+
 describe("accepted-message failure", () => {
   const failure = {
     kind: "agent_session_message_accepted",

@@ -102,7 +102,7 @@ test.each([false, true])(
       ),
     );
     const view = render(
-      <MemoryRouter initialEntries={["/agents?task=example"]}>
+      <MemoryRouter initialEntries={["/workflows?task=example"]}>
         <ActiveWorkspaceContext
           value={{
             activeWorkspace: { workspaceId: "A", workspaceName: "A", repoPath: "/repo" },
@@ -118,20 +118,22 @@ test.each([false, true])(
     );
     try {
       const newTask = view.getByRole("button", { name: "New task" });
+      expect(newTask.querySelectorAll("svg")).toHaveLength(1);
+      expect(newTask.querySelector("svg.lucide-plus")).not.toBeNull();
       if (!compact) expect(newTask.className).toContain("text-sm");
       fireEvent.click(newTask);
       expect(view.queryByRole("dialog", { name: "Task creation" }) !== null).toBe(true);
       fireEvent.click(view.getByRole("button", { name: "New chat" }));
       expect(view.getByRole("dialog", { name: "Chat creation" })).toBeTruthy();
-      expect(view.getByLabelText("Current route").textContent).toBe("/agents?task=example");
+      expect(view.getByLabelText("Current route").textContent).toBe("/workflows?task=example");
       fireEvent.click(view.getByRole("button", { name: "Cancel chat" }));
       expect(view.queryByRole("dialog", { name: "Chat creation" })).toBeNull();
-      expect(view.getByLabelText("Current route").textContent).toBe("/agents?task=example");
+      expect(view.getByLabelText("Current route").textContent).toBe("/workflows?task=example");
       fireEvent.click(view.getByRole("button", { name: "New chat" }));
       fireEvent.click(view.getByRole("button", { name: "Finish creation" }));
       expect(view.queryByRole("dialog", { name: "Chat creation" })).toBeNull();
       expect(view.getByLabelText("Current route").textContent).toBe(
-        "/workspace-sessions?session=created-session",
+        "/chats?session=created-session",
       );
     } finally {
       view.unmount();

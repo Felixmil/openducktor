@@ -29,9 +29,9 @@ describe("agent-studio-navigation", () => {
         sessionExternalId: session.externalSessionId,
         role: "build",
       }),
-    ).toBe("/agents?task=task-1&session=session-1&agent=build");
+    ).toBe("/workflows?task=task-1&session=session-1&agent=build");
     expect(buildAgentStudioHref({ taskId: "task-1", sessionExternalId: null, role: "qa" })).toBe(
-      "/agents?task=task-1&agent=qa",
+      "/workflows?task=task-1&agent=qa",
     );
   });
 

@@ -27,7 +27,7 @@ function SessionList({
           <Link
             to={
               session.workspaceSessionId !== undefined
-                ? `/workspace-sessions?session=${encodeURIComponent(session.workspaceSessionId)}`
+                ? `/chats?session=${encodeURIComponent(session.workspaceSessionId)}`
                 : buildAgentStudioHref({
                     taskId: session.taskId,
                     sessionExternalId: session.externalSessionId,

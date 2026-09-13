@@ -7,6 +7,7 @@ import { configureShellBridge, createUnavailableShellBridge } from "@/lib/shell-
 import { createShellBridgeFixture } from "@/test-utils/focused-fixture";
 import { WorkspaceSessionHistoryDialog } from "./workspace-session-history-dialog";
 import { WorkspaceSessionHeader } from "./workspace-session-header";
+import { WorkspaceSessionRenameDialog } from "./workspace-session-rename-dialog";
 
 const record = (): WorkspaceSession => ({
   id: "session-1",
@@ -23,6 +24,41 @@ const record = (): WorkspaceSession => ({
 });
 
 describe("Workspace Session metadata UI", () => {
+  test("rename separates the header, body, and footer with Cancel on the left", () => {
+    const view = render(
+      <QueryProvider useIsolatedClient>
+        <WorkspaceSessionRenameDialog
+          workspaceId="A"
+          record={record()}
+          onClose={() => {}}
+          onCloseAutoFocus={() => {}}
+        />
+      </QueryProvider>,
+    );
+    try {
+      const dialog = view.getByRole("dialog", { name: "Rename chat" });
+      const header = view.getByRole("heading", { name: "Rename chat" }).parentElement;
+      const body = view.getByRole("textbox", { name: "Name" }).parentElement;
+      const cancel = view.getByRole("button", { name: "Cancel" });
+      const save = view.getByRole("button", { name: "Save" });
+      const footer = cancel.parentElement;
+
+      expect(dialog.classList.contains("p-0")).toBe(true);
+      expect(header?.classList.contains("border-b")).toBe(true);
+      expect(body?.classList.contains("px-5")).toBe(true);
+      expect(body?.classList.contains("py-4")).toBe(true);
+      expect(footer?.classList.contains("border-t")).toBe(true);
+      expect(footer?.classList.contains("mt-0")).toBe(true);
+      expect(footer?.classList.contains("justify-between")).toBe(true);
+      expect(footer?.firstElementChild).toBe(cancel);
+      expect(footer?.lastElementChild).toBe(save);
+      expect(dialog.querySelector("form")?.classList.contains("min-h-0")).toBe(true);
+      expect(cancel.closest("fieldset")?.classList.contains("min-h-0")).toBe(true);
+    } finally {
+      view.unmount();
+    }
+  });
+
   test("Cancel discards a rename without saving and returns focus to session actions", async () => {
     const saved: string[] = [];
     configureShellBridge(
@@ -45,6 +81,7 @@ describe("Workspace Session metadata UI", () => {
       fireEvent.click(heading);
       expect(view.queryByRole("textbox")).toBeNull();
       const actions = view.getByRole("button", { name: "Session actions" });
+      expect(actions.querySelector("svg.lucide-ellipsis-vertical")).not.toBeNull();
       fireEvent.click(actions);
       fireEvent.click(await view.findByRole("button", { name: "Rename" }, { timeout: 800 }));
       const title = await view.findByRole("textbox", { name: "Name" }, { timeout: 800 });

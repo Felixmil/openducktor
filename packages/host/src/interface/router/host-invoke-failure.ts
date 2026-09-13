@@ -17,11 +17,14 @@ export const hostInvokeFailureFromError = (cause: unknown): HostInvokeFailure | 
   if (cause instanceof AgentSessionMessageAcceptedError) {
     return cause.failure;
   }
+  if (cause instanceof HostValidationError && cause.field === "confirmStop") {
+    return { kind: "workspace_session_confirmation", field: cause.field };
+  }
   if (
     cause instanceof HostValidationError &&
-    (cause.field === "confirmUncommittedChanges" || cause.field === "confirmStop")
+    (cause.field === "worktree.name" || cause.field === "worktree.branchName")
   ) {
-    return { kind: "workspace_session_confirmation", field: cause.field };
+    return { kind: "workspace_session_validation", field: cause.field };
   }
   if (cause instanceof WorkspaceTextFileWriteError) {
     return {

@@ -32,7 +32,7 @@ const expectedSessionHref = (session: typeof activeSession | typeof waitingSessi
     session: session.externalSessionId,
     agent: session.role,
   });
-  return `/agents?${params.toString()}`.replaceAll("&", "&amp;");
+  return `/workflows?${params.toString()}`.replaceAll("&", "&amp;");
 };
 
 describe("AgentActivityCard", () => {
@@ -58,8 +58,8 @@ describe("AgentActivityCard", () => {
     );
     expect(html).toContain("Plan the release");
     expect(html).toContain("CHAT · waiting input");
-    expect(html).toContain('href="/workspace-sessions?session=chat%20%2F%3Fone"');
-    expect(html).not.toContain('href="/agents?');
+    expect(html).toContain('href="/chats?session=chat%20%2F%3Fone"');
+    expect(html).not.toContain('href="/workflows?');
   });
   test("renders active/waiting counters and session deep links", () => {
     const html = renderToStaticMarkup(
@@ -102,6 +102,6 @@ describe("AgentActivityCard", () => {
     );
 
     expect(html).not.toContain("No sessions are waiting on user input.");
-    expect(html).not.toContain("Open Agents");
+    expect(html).not.toContain("Open Workflows");
   });
 });

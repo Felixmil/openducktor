@@ -329,15 +329,13 @@ function WorkspaceSessions({ workspace }: WorkspaceSessionsProps): ReactElement 
   if (records.isPending)
     return (
       <p role="status" className="p-6 text-muted-foreground">
-        Loading Workspace Sessions…
+        Loading chats…
       </p>
     );
   if (records.isError)
     return (
       <div role="alert" className="space-y-3 p-6">
-        <p className="text-destructive">
-          Could not load Workspace Sessions: {errorMessage(records.error)}
-        </p>
+        <p className="text-destructive">Could not load chats: {errorMessage(records.error)}</p>
         <Button variant="outline" onClick={() => void records.refetch()}>
           Retry
         </Button>
@@ -408,17 +406,13 @@ function WorkspaceSessions({ workspace }: WorkspaceSessionsProps): ReactElement 
       )}
       {selected ? (
         <TabsContent
+          key={selected.id}
           value={selected.id}
           className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-card"
         >
-          <WorkspaceSessionHeader
-            key={selected.id}
-            workspaceId={workspace.workspaceId}
-            record={selected}
-          />
+          <WorkspaceSessionHeader workspaceId={workspace.workspaceId} record={selected} />
           {settings.data && (
             <WorkspaceSessionChat
-              key={selected.id}
               workspace={workspace}
               record={selected}
               chatSettings={settings.data.chat}

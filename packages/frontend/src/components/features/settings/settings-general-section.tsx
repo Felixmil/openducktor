@@ -27,11 +27,11 @@ export function GeneralSettingsSection({
         <div className="flex items-center justify-between gap-3">
           <div className="space-y-1">
             <p className="text-sm font-medium text-foreground">
-              Open Agent Studio tab for background sessions
+              Open Task workflows tab for background sessions
             </p>
             <p className="text-xs text-muted-foreground">
-              When enabled, starting a task session in the background adds that task to Agent Studio
-              tabs without navigating away from Kanban.
+              When enabled, starting a task session in the background adds that task to Task
+              workflows tabs without navigating away from Kanban.
             </p>
           </div>
           <Switch
@@ -43,7 +43,7 @@ export function GeneralSettingsSection({
               }))
             }
             disabled={disabled}
-            aria-label="Open Agent Studio tab for background sessions"
+            aria-label="Open Task workflows tab for background sessions"
           />
         </div>
       </div>

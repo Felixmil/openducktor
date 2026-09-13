@@ -110,7 +110,6 @@ export const createWorkspaceSessionService = (
             worktree: input.worktree,
             repoConfig: { ...config, repoPath },
             location: input.location,
-            confirmUncommittedChanges: input.confirmUncommittedChanges,
           },
           (executionTarget, retainTarget) =>
             Effect.gen(function* () {

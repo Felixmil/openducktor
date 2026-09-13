@@ -5,8 +5,8 @@ import { sidebarNavLinkClassName } from "./sidebar-navigation-styles";
 
 const NAV_ITEMS = [
   { to: "/kanban", icon: Columns3, label: "Kanban", requiresRepo: false },
-  { to: "/agents", icon: Bot, label: "Agents", requiresRepo: true },
-  { to: "/workspace-sessions", icon: MessagesSquare, label: "Chats", requiresRepo: true },
+  { to: "/workflows", icon: Bot, label: "Workflows", requiresRepo: true },
+  { to: "/chats", icon: MessagesSquare, label: "Chats", requiresRepo: true },
 ] as const;
 
 type NavigationRoute = (typeof NAV_ITEMS)[number]["to"];

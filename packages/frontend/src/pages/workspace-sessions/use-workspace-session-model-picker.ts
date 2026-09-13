@@ -42,6 +42,7 @@ export function useWorkspaceSessionModelPicker(repoPath: string, session?: Sessi
   const definitions = session ? allRuntimeDefinitions : availableRuntimeDefinitions;
   const runtimeKinds = useMemo(() => definitions.map((entry) => entry.kind), [definitions]);
   const hasSession = session !== undefined;
+  const liveSession = session?.identity != null;
   const enabledRuntimeKinds = useMemo(
     () => (hasSession ? [] : runtimeKinds),
     [runtimeKinds, hasSession],
@@ -63,11 +64,11 @@ export function useWorkspaceSessionModelPicker(repoPath: string, session?: Sessi
   const options = useMemo(
     () =>
       resolveModelSelectionOptions({
-        liveSession: hasSession,
+        liveSession,
         selectionCatalog: catalog,
         selectedModelSelection: selection,
       }),
-    [hasSession, catalog, selection],
+    [liveSession, catalog, selection],
   );
   const actions = useModelSelectionActions({
     loadedSessionIdentity: session?.identity ?? null,

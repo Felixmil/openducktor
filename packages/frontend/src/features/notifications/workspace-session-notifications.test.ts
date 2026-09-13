@@ -225,7 +225,7 @@ describe("Workspace Session notifications", () => {
     selection.resolve();
     await opening;
     expect(navigate).toHaveBeenCalledWith(
-      "/workspace-sessions?session=chat&attention=question&attentionId=answer",
+      "/chats?session=chat&attention=question&attentionId=answer",
       expect.anything(),
     );
     expect(loadTasks).not.toHaveBeenCalled();

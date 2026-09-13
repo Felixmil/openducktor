@@ -59,12 +59,12 @@ describe("settings chat section", () => {
     expect(screen.getByText(/Thinking messages are hidden by default/)).toBeDefined();
     expect(
       screen.getByText(
-        "Thinking messages are hidden by default. When enabled, they will appear in the Agent Studio transcript after you save settings.",
+        "Thinking messages are hidden by default. When enabled, they will appear in task workflow transcripts after you save settings.",
       ),
     ).toBeDefined();
     expect(screen.getByText("Expand file diffs by default")).toBeDefined();
     expect(
-      screen.getByText(/File diffs in Agent Studio transcripts will start expanded/),
+      screen.getByText(/File diffs in task workflow transcripts will start expanded/),
     ).toBeDefined();
     expect(screen.getByText("Diff Style")).toBeDefined();
     expect(screen.getByText("Diff Indicators")).toBeDefined();
@@ -78,7 +78,7 @@ describe("settings chat section", () => {
 
     renderSettingsChatSection(chatSettings);
 
-    expectSwitchChecked("Show thinking messages in Agent Studio transcript", false);
+    expectSwitchChecked("Show thinking messages in task workflow transcripts", false);
   });
 
   test("renders switch as checked when showThinkingMessages is true", () => {
@@ -86,7 +86,7 @@ describe("settings chat section", () => {
 
     renderSettingsChatSection(chatSettings);
 
-    expectSwitchChecked("Show thinking messages in Agent Studio transcript", true);
+    expectSwitchChecked("Show thinking messages in task workflow transcripts", true);
   });
 
   test("renders file diff switch as checked when diffs expand by default", () => {
@@ -94,7 +94,7 @@ describe("settings chat section", () => {
 
     renderSettingsChatSection(chatSettings);
 
-    expectSwitchChecked("Expand file diffs by default in Agent Studio transcripts", true);
+    expectSwitchChecked("Expand file diffs by default in task workflow transcripts", true);
   });
 
   test("renders file diff switch as unchecked when diffs start collapsed", () => {
@@ -102,7 +102,7 @@ describe("settings chat section", () => {
 
     renderSettingsChatSection(chatSettings);
 
-    expectSwitchChecked("Expand file diffs by default in Agent Studio transcripts", false);
+    expectSwitchChecked("Expand file diffs by default in task workflow transcripts", false);
   });
 
   test("switch is disabled when disabled prop is true", () => {

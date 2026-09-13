@@ -39,6 +39,7 @@ import type {
   AgentSessionLiveAdapterScope,
 } from "../../ports/agent-session-live-adapter-port";
 import type { AgentSessionPersistencePort } from "../../ports/agent-session-persistence-port";
+import { AgentSessionMessageAcceptedError } from "../../ports/agent-session-send-error";
 import {
   type AgentSessionLiveEnvelopePublisher,
   type AgentSessionLiveFaultLogger,
@@ -283,7 +284,30 @@ export const createAgentSessionLiveStateService = ({
     startSession: (input) => runControl(input, (adapter) => adapter.startSession(input)),
     resumeSession: (input) => runControl(input, (adapter) => adapter.resumeSession(input)),
     forkSession: (input) => runControl(input, (adapter) => adapter.forkSession(input)),
-    sendUserMessage: (input) => runControl(input, (adapter) => adapter.sendUserMessage(input)),
+    sendUserMessage: (input) =>
+      Effect.gen(function* () {
+        const adapter = yield* adapterRegistry.resolveControlForScope(input);
+        const acceptedMessage = yield* adapter.sendUserMessage(input);
+        yield* lifecycle.requireAttached(adapter.binding).pipe(
+          Effect.mapError(
+            (cause) =>
+              new AgentSessionMessageAcceptedError(
+                {
+                  sessionRef: {
+                    repoPath: input.repoPath,
+                    runtimeKind: input.runtimeKind,
+                    workingDirectory: input.workingDirectory,
+                    externalSessionId: input.externalSessionId,
+                  },
+                  acceptedMessage,
+                  stage: "live_update",
+                },
+                cause,
+              ),
+          ),
+        );
+        return acceptedMessage;
+      }),
     updateSessionModel: (input) =>
       runControl(input, (adapter) => adapter.updateSessionModel(input)),
     stopSession: (input) => runControl(input, (adapter) => adapter.stopSession(input)),

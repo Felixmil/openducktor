@@ -68,16 +68,16 @@ export const startKanbanSessionFlow = async ({
   if (startInBackground) {
     if (openAgentStudioTabOnBackgroundSessionStart) {
       if (!workspaceId) {
-        toast.warning("Session started, but Agent Studio tab could not be saved.", {
+        toast.warning("Session started, but its task workflow tab could not be saved.", {
           description: "No active workspace is selected.",
         });
       } else {
         try {
           await saveAgentStudioTab(request.taskId);
         } catch (error) {
-          toast.warning("Session started, but Agent Studio tab could not be saved.", {
+          toast.warning("Session started, but its task workflow tab could not be saved.", {
             description:
-              error instanceof Error ? error.message : "Unable to update Agent Studio state.",
+              error instanceof Error ? error.message : "Unable to update task workflow tabs.",
           });
         }
       }

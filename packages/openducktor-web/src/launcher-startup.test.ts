@@ -8,6 +8,7 @@ import { runWebBoundary } from "./effect/web-errors";
 import { runLauncherEffect, viteServerOptions } from "./launcher";
 import * as support from "./launcher-support";
 import * as backend from "./typescript-host-backend";
+import { withViteTestServer } from "./vite-test-server";
 import * as discovery from "./web-tool-discovery";
 
 test.each(["", " \t\n "])(
@@ -74,41 +75,39 @@ test.each(["/session", "/health", "/invoke", "/task-events/subscriptions", "/tas
 );
 
 test("Vite accepts both external hostname forms and rejects unknown hosts", async () => {
-  const { createServer } = await import("vite");
-  const server = await createServer({
-    configFile: false,
-    server: viteServerOptions({
-      packageRoot: process.cwd(),
-      workspaceMode: false,
-      frontendPort: 0,
-      backendPort: 0,
-      externalUrl: "https://machine.ts.net.",
-    }),
-    plugins: [
-      {
-        name: "test-host-response",
-        configureServer(vite) {
-          return () => vite.middlewares.use((_request, response) => response.end("allowed"));
+  await withViteTestServer(
+    {
+      server: viteServerOptions({
+        packageRoot: process.cwd(),
+        workspaceMode: false,
+        frontendPort: 0,
+        backendPort: 0,
+        externalUrl: "https://machine.ts.net.",
+      }),
+      plugins: [
+        {
+          name: "test-host-response",
+          configureServer(vite) {
+            return () => vite.middlewares.use((_request, response) => response.end("allowed"));
+          },
         },
-      },
-    ],
-  });
-  try {
-    await server.listen();
-    const address = z.object({ port: z.number() }).parse(server.httpServer?.address());
-    for (const host of [
-      "machine.ts.net",
-      "machine.ts.net.",
-      "unknown.example",
-      "sub.machine.ts.net",
-    ]) {
-      const response = await fetch(`http://127.0.0.1:${address.port}/`, { headers: { host } });
-      expect(response.status).toBe(host.startsWith("machine.ts.net") ? 200 : 403);
-      await response.text();
-    }
-  } finally {
-    await server.close();
-  }
+      ],
+    },
+    async (server) => {
+      await server.listen();
+      const address = z.object({ port: z.number() }).parse(server.httpServer?.address());
+      for (const host of [
+        "machine.ts.net",
+        "machine.ts.net.",
+        "unknown.example",
+        "sub.machine.ts.net",
+      ]) {
+        const response = await fetch(`http://127.0.0.1:${address.port}/`, { headers: { host } });
+        expect(response.status).toBe(host.startsWith("machine.ts.net") ? 200 : 403);
+        await response.text();
+      }
+    },
+  );
 }, 10_000);
 
 test.each([

@@ -35,6 +35,8 @@ Bun can interleave test files in one process. A file-wide module mock or process
 
 A `renderToStaticMarkup` test that uses Query or app context needs the same providers as a client-rendered test.
 
+Use [withViteTestServer](../packages/openducktor-web/src/vite-test-server.ts) for Vite server tests in the web package. It gives each server a temporary cache and closes the server before cleanup. A test server must not share the running app's cache. Vite can delete that cache when the test uses different dependency settings.
+
 ## Async and flaky tests
 
 - Use an explicit `waitFor(...)` or test-harness timeout for async Query, portal, or render work.

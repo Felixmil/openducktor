@@ -1,5 +1,5 @@
 import type { WorkspaceSession } from "@openducktor/contracts";
-import { GitBranch, MoreHorizontal, Pencil } from "lucide-react";
+import { EllipsisVertical, GitBranch, Pencil } from "lucide-react";
 import { type ReactElement, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -30,7 +30,7 @@ export function WorkspaceSessionHeader({ workspaceId, record }: Props): ReactEle
               aria-label="Session actions"
               title="Session actions"
             >
-              <MoreHorizontal aria-hidden="true" />
+              <EllipsisVertical aria-hidden="true" />
             </Button>
           </PopoverTrigger>
           <PopoverContent

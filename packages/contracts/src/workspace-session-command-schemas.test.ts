@@ -8,6 +8,22 @@ import {
 } from "./workspace-session-command-schemas";
 
 describe("named chat worktree inputs", () => {
+  test("creation has no uncommitted-changes confirmation field", () => {
+    const input = {
+      workspaceId: "repo",
+      runtimeKind: "codex",
+      selectedModel: null,
+      customAgentRoleId: null,
+      manualTitle: null,
+      location: "local_worktree",
+      worktree: { mode: "from_name", name: "review", branchName: null },
+    };
+    expect(workspaceSessionCreateInputSchema.parse(input)).toEqual(input);
+    expect(
+      workspaceSessionCreateInputSchema.safeParse({ ...input, confirmUncommittedChanges: true })
+        .success,
+    ).toBe(false);
+  });
   test("requires explicit removal consent while omitted archive options keep Git resources", () => {
     const ref = { workspaceId: "repo", sessionId: "chat" };
     expect(workspaceSessionArchiveInputSchema.parse(ref)).toEqual({

@@ -30,7 +30,7 @@ function HeaderTitle({ taskTitle, taskId, onOpenTaskDetails }: HeaderTitleProps)
           className="truncate text-lg leading-6"
           title={hasTaskTitle ? normalizedTaskTitle : undefined}
         >
-          {hasTaskTitle ? normalizedTaskTitle : "Agent Studio"}
+          {hasTaskTitle ? normalizedTaskTitle : "Task workflows"}
         </CardTitle>
       </div>
       {hasTaskId ? (
