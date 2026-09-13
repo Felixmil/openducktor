@@ -964,6 +964,84 @@ describe("useSettingsModalController", () => {
     await harness.unmount();
   });
 
+  test("keeps role edits local until Save Settings and discards them when settings close", async () => {
+    saveSettingsSnapshot = mock(async () => {});
+    const harness = createHookHarness(true);
+    const role = { id: "review", name: "Reviewer", systemPrompt: "Review code." };
+    try {
+      await harness.mount();
+      await harness.waitFor((state) => state.snapshotDraft !== null);
+      await harness.run((state) => state.updateCustomAgentRoles(() => [role]));
+      expect(harness.getLatest().snapshotDraft?.customAgentRoles).toEqual([role]);
+      expect(saveSettingsSnapshot).not.toHaveBeenCalled();
+      await harness.update({ isOpen: false, shouldLoad: false });
+      await harness.update({ isOpen: true, shouldLoad: false });
+      await harness.waitFor((state) => state.snapshotDraft !== null);
+      expect(harness.getLatest().snapshotDraft?.customAgentRoles).toEqual([]);
+      await harness.run((state) => state.updateCustomAgentRoles(() => [role]));
+      let saved = false;
+      await harness.run(async (state) => {
+        saved = await state.submit();
+      });
+      expect(saved).toBe(true);
+      expect(saveSettingsSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({ customAgentRoles: [role] }),
+      );
+    } finally {
+      await harness.unmount();
+    }
+  });
+
+  test("discards a confirmed role deletion when Settings closes without saving", async () => {
+    const role = { id: "review", name: "Reviewer", systemPrompt: "Review code." };
+    settingsSnapshotFactory = () => ({ ...createSettingsSnapshot(), customAgentRoles: [role] });
+    saveSettingsSnapshot = mock(async () => {});
+    const harness = createHookHarness(true);
+    try {
+      await harness.mount();
+      await harness.waitFor((state) => state.snapshotDraft !== null);
+      await harness.run((state) => state.updateCustomAgentRoles(() => []));
+      expect(harness.getLatest().snapshotDraft?.customAgentRoles).toEqual([]);
+      expect(saveSettingsSnapshot).not.toHaveBeenCalled();
+      await harness.update({ isOpen: false, shouldLoad: false });
+      await harness.update({ isOpen: true, shouldLoad: false });
+      await harness.waitFor((state) => state.snapshotDraft !== null);
+      expect(harness.getLatest().snapshotDraft?.customAgentRoles).toEqual([role]);
+      expect(saveSettingsSnapshot).not.toHaveBeenCalled();
+    } finally {
+      await harness.unmount();
+    }
+  });
+
+  test("blocks Save Settings for invalid roles and retains the draft after a failed save", async () => {
+    saveSettingsSnapshot = mock(async () => {
+      throw new Error("Settings write failed");
+    });
+    const harness = createHookHarness(true);
+    try {
+      await harness.mount();
+      await harness.waitFor((state) => state.snapshotDraft !== null);
+      await harness.run((state) =>
+        state.updateCustomAgentRoles(() => [{ id: "one", name: "", systemPrompt: "" }]),
+      );
+      expect(harness.getLatest().settingsSectionErrorCountById["custom-agent-roles"]).toBe(2);
+      await harness.run(async (state) => {
+        expect(await state.submit()).toBe(false);
+      });
+      expect(saveSettingsSnapshot).not.toHaveBeenCalled();
+      const role = { id: "one", name: "Reviewer", systemPrompt: "Review." };
+      await harness.run((state) => state.updateCustomAgentRoles(() => [role]));
+      await harness.run(async (state) => {
+        expect(await state.submit()).toBe(false);
+      });
+      expect(harness.getLatest().saveError).toBe("Settings write failed");
+      expect(harness.getLatest().snapshotDraft?.customAgentRoles).toEqual([role]);
+      expect(harness.getLatest().isSaving).toBe(false);
+    } finally {
+      await harness.unmount();
+    }
+  });
+
   test("saves chat-only edits through the settings snapshot query path", async () => {
     refreshChecks = mock(async () => {});
     saveGlobalGitConfig = mock(async () => {});
@@ -991,7 +1069,8 @@ describe("useSettingsModalController", () => {
     });
 
     const expectedSnapshot = createSettingsSnapshot();
-    const { theme: expectedTheme, ...expectedSnapshotUpdate } = expectedSnapshot;
+    const { theme: expectedTheme, customAgentRoles, ...expectedSnapshotUpdate } = expectedSnapshot;
+    expect(customAgentRoles).toEqual([]);
     expect(didSave).toBe(true);
     expect(expectedTheme).toBe("light");
     expect(saveGlobalGitConfig).toHaveBeenCalledTimes(0);

@@ -2,6 +2,7 @@ import { createCodexRuntimeTransport } from "./codex-runtime-transport";
 import { createRuntimeQueryAdapter } from "./runtime-query-adapter";
 import { createCodexImageOperations } from "./codex-image-operations";
 import { createCodexImageSettlement } from "./codex-live-session-images";
+import { AgentSessionMessageAcceptedError } from "../../ports/agent-session-send-error";
 import {
   CodexAppServerAdapter,
   type CodexAppServerAdapterOptions,
@@ -278,11 +279,7 @@ export const createCodexLiveSessionAdapterPreparer =
         queries: createRuntimeQueryAdapter(controller),
         ...createCodexImageOperations(controller, sessionError),
         supportsSessionControl: true,
-        binding: {
-          runtimeId: runtime.runtimeId,
-          runtimeKind: "codex",
-          repoPath: runtime.repoPath,
-        },
+        binding: projection.binding,
         listSnapshots: projection.listSnapshots,
         readSnapshot: projection.readSnapshot,
         loadContext: (input) =>
@@ -461,6 +458,17 @@ export const createCodexLiveSessionAdapterPreparer =
             Effect.flatMap((value) =>
               refreshProjection([{ ...value, sessionRef: toSessionRef(input) }]).pipe(
                 Effect.as(value),
+                Effect.mapError(
+                  (cause) =>
+                    new AgentSessionMessageAcceptedError(
+                      {
+                        sessionRef: toSessionRef(input),
+                        acceptedMessage: value,
+                        stage: "live_update",
+                      },
+                      cause,
+                    ),
+                ),
               ),
             ),
           ),

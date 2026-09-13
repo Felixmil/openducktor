@@ -9,6 +9,7 @@ import {
 } from "./notification-schemas";
 import { repoPromptOverridesSchema } from "./prompt-schemas";
 import { workspaceAgentStudioStateSchema } from "./workspace-agent-studio-state-schemas";
+import { customAgentRoleSchema } from "./workspace-session-schemas";
 
 export const DEFAULT_BRANCH_PREFIX = "odt";
 export const WORKSPACE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -642,6 +643,25 @@ export type SystemSettings = z.infer<typeof systemSettingsSchema>;
 
 const globalConfigSharedFields = {
   system: systemSettingsSchema.default({}),
+  customAgentRoles: z
+    .array(customAgentRoleSchema)
+    .superRefine((roles, context) => {
+      const ids = new Set<string>();
+      const names = new Set<string>();
+      for (const [index, role] of roles.entries()) {
+        const name = role.name.toLowerCase();
+        if (ids.has(role.id) || names.has(name)) {
+          context.addIssue({
+            code: "custom",
+            path: [index],
+            message: "Custom Agent Role IDs and names must be unique.",
+          });
+        }
+        ids.add(role.id);
+        names.add(name);
+      }
+    })
+    .default([]),
   activeWorkspace: workspaceIdSchema.optional(),
   theme: themeSchema,
   git: globalGitConfigSchema.default({ defaultMergeMethod: "merge_commit" }),
@@ -677,6 +697,7 @@ export type GlobalConfig = ParsedGlobalConfig;
 
 export const settingsSnapshotSchema = z.object({
   system: systemSettingsSchema.default({}),
+  customAgentRoles: globalConfigSharedFields.customAgentRoles,
   theme: themeValueSchema,
   git: globalGitConfigSchema.default({ defaultMergeMethod: "merge_commit" }),
   general: generalSettingsSchema.default(DEFAULT_GENERAL_SETTINGS),
@@ -702,6 +723,12 @@ const settingsSnapshotSaveAgentModelFavoritesSchema = agentModelFavoritesSchema
 
 export const settingsSnapshotSaveInputSchema = z.object({
   system: systemSettingsSchema,
+  customAgentRoles: globalConfigSharedFields.customAgentRoles
+    .removeDefault()
+    .optional()
+    .describe(
+      "Replace custom roles only when this section was edited. Omit to leave saved roles unchanged.",
+    ),
   git: globalGitConfigSchema,
   general: generalSettingsSchema,
   appearance: appearanceSettingsSchema,

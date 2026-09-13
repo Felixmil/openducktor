@@ -42,6 +42,12 @@ import type {
 import { hostBridge } from "@/lib/host-client";
 import { getShellBridge } from "@/lib/shell-bridge";
 import { loadAgentSessionListsFromQuery } from "@/state/queries/agent-sessions";
+import {
+  workspaceSessionListQueryOptions,
+  workspaceSessionQueryKeys,
+} from "@/state/queries/workspace-sessions";
+import { observeWorkspaceSessionRecords } from "@/state/queries/workspace-session-updates";
+import { agentSessionQueryKeys } from "@/state/queries/agent-sessions";
 import { readCachedAgentSessionAssociation } from "@/state/queries/agent-session-association";
 import { getProductionTaskViewSync } from "@/state/queries/task-view-sync";
 import { type RepoTaskData, taskQueryKeys } from "@/state/queries/tasks";
@@ -175,15 +181,55 @@ export function NotificationProvider({ children }: PropsWithChildren): ReactElem
       createNotificationWorkspaceObserver({
         observe: hostBridge.observeAgentSessionLive,
         taskObserver,
+        sessionRecords: {
+          load: async (repoPath) => {
+            const workspace = workspacesRef.current.find((entry) => entry.repoPath === repoPath);
+            if (!workspace) throw new Error("The notification workspace is unavailable.");
+            await queryClient.fetchQuery({
+              ...workspaceSessionListQueryOptions(workspace.workspaceId),
+              staleTime: Number.POSITIVE_INFINITY,
+            });
+          },
+          resolve: (ref) =>
+            readCachedAgentSessionAssociation(
+              queryClient,
+              ref,
+              workspacesRef.current.find((entry) => entry.repoPath === ref.repoPath)?.workspaceId ??
+                null,
+            ),
+          subscribe: (onChange) =>
+            queryClient.getQueryCache().subscribe((event) => {
+              if (event.type !== "updated" || event.action.type !== "success") return;
+              const root = event.query.queryKey[0];
+              if (
+                root === agentSessionQueryKeys.all[0] ||
+                root === workspaceSessionQueryKeys.all[0]
+              )
+                onChange();
+            }),
+        },
         publish: runtime.publish,
         onFailure: reportProducerFailure,
       }),
-    [runtime.publish, taskObserver],
+    [queryClient, runtime.publish, taskObserver],
   );
 
   useEffect(() => runtime.subscribe(), [runtime]);
 
   useEffect(() => installCuelumeGestureUnlock(), []);
+
+  useEffect(
+    () =>
+      observeWorkspaceSessionRecords(queryClient, (message) => {
+        if (message)
+          reportProducerFailure({
+            repoPath: "workspace-sessions",
+            source: "session",
+            cause: new Error(message),
+          });
+      }),
+    [queryClient],
+  );
 
   useEffect(() => {
     void workspaceObserver.syncWorkspaces(workspaces.map(toNotificationWorkspace));

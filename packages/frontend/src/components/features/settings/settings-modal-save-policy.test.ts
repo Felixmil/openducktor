@@ -85,6 +85,7 @@ describe("settings-modal-save-policy", () => {
   test("selects the first settings save blocker and its required UI action", () => {
     const blocker = getSettingsSaveBlocker({
       prompt: { hasErrors: true, errorCount: 2 },
+      customAgentRoles: { hasErrors: false, errorCount: 0 },
       reusablePrompts: { hasErrors: true, errorCount: 3 },
       runtimeRequest: { isPending: true, error: "request failed" },
       runtimeAvailability: { hasErrors: true, errorCount: 1, invalidKind: "claude" },
@@ -107,6 +108,7 @@ describe("settings-modal-save-policy", () => {
   test("returns runtime focus metadata for an executable blocker", () => {
     const blocker = getSettingsSaveBlocker({
       prompt: { hasErrors: false, errorCount: 0 },
+      customAgentRoles: { hasErrors: false, errorCount: 0 },
       reusablePrompts: { hasErrors: false, errorCount: 0 },
       runtimeRequest: { isPending: false, error: null },
       runtimeAvailability: { hasErrors: true, errorCount: 1, invalidKind: "codex" },
@@ -130,6 +132,7 @@ describe("settings-modal-save-policy", () => {
     expect(
       getSettingsSaveBlocker({
         prompt: { hasErrors: false, errorCount: 0 },
+        customAgentRoles: { hasErrors: false, errorCount: 0 },
         reusablePrompts: { hasErrors: false, errorCount: 0 },
         runtimeRequest: { isPending: false, error: null },
         runtimeAvailability: { hasErrors: false, errorCount: 0, invalidKind: null },

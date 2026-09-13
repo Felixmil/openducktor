@@ -41,10 +41,49 @@ const createConsumerHarness = (
     },
     { batchWindowMs },
   );
-  return { consumer, sessionsRef };
+  return {
+    consumer: {
+      ...consumer,
+      handle: (event: AgentSessionTranscriptEvent) => {
+        sessionsRef.current = applyAgentSessionLiveDelta({
+          current: sessionsRef.current,
+          envelope: { type: "transcript_event", event },
+        });
+        consumer.handle(event);
+      },
+    },
+    sessionsRef,
+  };
 };
 
 describe("agent session transcript event consumer", () => {
+  test("a buffered transcript part cannot overwrite a later terminal episode", () => {
+    const { consumer, sessionsRef } = createConsumerHarness(60_000);
+    consumer.handle({
+      type: "assistant_delta",
+      channel: "text",
+      messageId: "late-message",
+      delta: "Buffered output",
+      externalSessionId: "session-1",
+      timestamp: "2026-09-12T12:00:00Z",
+      sessionRef,
+    });
+    sessionsRef.current = applyAgentSessionLiveDelta({
+      current: sessionsRef.current,
+      envelope: {
+        type: "transcript_event",
+        event: {
+          type: "session_error",
+          externalSessionId: "session-1",
+          message: "New episode failed",
+          timestamp: "2026-09-12T12:00:01Z",
+          sessionRef,
+        },
+      },
+    });
+    consumer.close();
+    expect(getSession(sessionsRef).status).toBe("error");
+  });
   test("keeps child messages in the shared projection independently of modal lifetime", () => {
     const child = buildSession({
       externalSessionId: "child-thread",

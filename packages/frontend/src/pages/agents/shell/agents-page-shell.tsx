@@ -81,7 +81,7 @@ export function AgentsPageShell({
             <AlertTriangle className="mt-0.5 size-5 shrink-0" />
             <div className="min-w-0 space-y-2">
               <p className="font-medium text-destructive">
-                Agent Studio couldn&apos;t restore saved navigation context.
+                Task workflows couldn&apos;t restore the saved navigation context.
               </p>
               {workspaceRepoPath ? <p>{`Repository: ${workspaceRepoPath}`}</p> : null}
               <p className="break-words font-mono text-xs">{navigationPersistenceError.message}</p>
@@ -117,7 +117,7 @@ export function AgentsPageShell({
           onRetry={onRetryChatSettingsLoad}
           repositoryPath={workspaceRepoPath}
           retryLabel="Retry load"
-          title="Agent Studio couldn't load chat settings."
+          title="Task workflows couldn't load chat settings."
         />
       ) : null}
       {gitProviderContextLoadError ? (
@@ -126,7 +126,7 @@ export function AgentsPageShell({
           onRetry={onRetryGitProviderContext}
           repositoryPath={workspaceRepoPath}
           retryLabel="Retry provider load"
-          title="Agent Studio couldn't load Git provider features."
+          title="Task workflows couldn't load Git provider features."
         />
       ) : null}
       <TabsContent value={activeTabValue} className="m-0 min-h-0 flex-1 bg-card p-0">

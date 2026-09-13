@@ -1,11 +1,89 @@
-import type { AgentSessionLiveEnvelope } from "@openducktor/contracts";
+import type { AgentSessionLiveEnvelope, AgentSessionLiveRef } from "@openducktor/contracts";
+import { Effect } from "effect";
 import {
+  type HostError,
   HostOperationError,
   type HostOperationErrorAggregate,
   HostValidationError,
   type HostValidationErrorAggregate,
 } from "../../effect/host-errors";
 import type { AgentSessionLiveAdapterChange } from "../../ports/agent-session-live-adapter-port";
+import type { AgentSessionPersistencePort } from "../../ports/agent-session-persistence-port";
+
+export type AgentSessionLiveEnvelopePublisher = (envelope: AgentSessionLiveEnvelope) => void;
+export type AgentSessionLiveFaultLogger = (message: string) => Effect.Effect<void, HostError>;
+
+export const createAgentSessionLiveEnvelopePublisher = (
+  publish: AgentSessionLiveEnvelopePublisher,
+  faultLog: AgentSessionLiveFaultLogger,
+  persistence: AgentSessionPersistencePort | undefined,
+) => {
+  const publishEnvelopeResult = (
+    envelope: AgentSessionLiveEnvelope,
+  ): Effect.Effect<HostError | null, HostError> =>
+    Effect.gen(function* () {
+      if (envelope.type === "fault") {
+        const faultLogResult = yield* Effect.either(
+          faultLog(formatAgentSessionLiveFaultLog(envelope)),
+        );
+        const publishResult = yield* Effect.either(
+          Effect.try({
+            try: () => publish(envelope),
+            catch: (cause) => toAgentSessionLiveEnvelopePublishError(cause, envelope.type),
+          }),
+        );
+        if (faultLogResult._tag === "Left" && publishResult._tag === "Left") {
+          return yield* Effect.fail(
+            new HostOperationError({
+              operation: "agent-session-live.publish-fault",
+              message: `Fault logging failed: ${faultLogResult.left.message}\nFault envelope publication failed: ${publishResult.left.message}`,
+              cause: {
+                faultLogFailure: faultLogResult.left,
+                publishFailure: publishResult.left,
+              },
+              details: {
+                eventType: envelope.type,
+                faultLogFailure: faultLogResult.left,
+                publishFailure: publishResult.left,
+              },
+            }),
+          );
+        }
+        if (faultLogResult._tag === "Left") {
+          return faultLogResult.left;
+        }
+        if (publishResult._tag === "Left") {
+          return yield* Effect.fail(publishResult.left);
+        }
+        return null;
+      }
+      yield* Effect.try({
+        try: () => publish(envelope),
+        catch: (cause) => toAgentSessionLiveEnvelopePublishError(cause, envelope.type),
+      });
+      if (persistence) {
+        const persisted = yield* Effect.either(persistence.observe(envelope));
+        if (persisted._tag === "Left") {
+          let ref: AgentSessionLiveRef | undefined;
+          if (envelope.type === "transcript_event") ref = envelope.event.sessionRef;
+          else if (envelope.type === "session_upsert") ref = envelope.session.ref;
+          else if (envelope.type === "session_removed") ref = envelope.ref;
+          if (ref) {
+            yield* publishEnvelopeResult({
+              type: "fault",
+              repoPath: ref.repoPath,
+              ref,
+              operation: "agent-session.persist",
+              message: persisted.left.message,
+            });
+          }
+          return persisted.left;
+        }
+      }
+      return null;
+    });
+  return publishEnvelopeResult;
+};
 
 type AgentSessionLiveFaultEnvelope = Extract<AgentSessionLiveEnvelope, { type: "fault" }>;
 type AgentSessionLiveFaultRef = NonNullable<AgentSessionLiveFaultEnvelope["ref"]>;
@@ -70,7 +148,7 @@ export const toAgentSessionLiveEnvelope = (
   }
 };
 
-export const formatAgentSessionLiveFaultLog = (envelope: AgentSessionLiveFaultEnvelope): string => {
+const formatAgentSessionLiveFaultLog = (envelope: AgentSessionLiveFaultEnvelope): string => {
   const payload: AgentSessionLiveFaultLogPayload = {
     repoPath: envelope.repoPath,
     message: envelope.message,
@@ -86,7 +164,7 @@ export const formatAgentSessionLiveFaultLog = (envelope: AgentSessionLiveFaultEn
   return `agent-session-live.fault ${JSON.stringify(payload)}`;
 };
 
-export const toAgentSessionLiveEnvelopePublishError = (
+const toAgentSessionLiveEnvelopePublishError = (
   cause: unknown,
   eventType: AgentSessionLiveEnvelope["type"],
 ): HostOperationErrorAggregate | HostValidationErrorAggregate =>

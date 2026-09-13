@@ -1,4 +1,5 @@
 import { unexpectedNativeRuntimeQueries } from "../../test-support/runtime-query-test-doubles";
+import { AgentSessionLiveRegistration } from "../../ports/agent-session-live-adapter-port";
 import { describe, expect, test } from "bun:test";
 import type {
   CodexAppServerAdapter,
@@ -25,16 +26,10 @@ import type {
   StartAgentSessionInput,
 } from "@openducktor/core";
 import { Cause, Effect, Exit, Fiber } from "effect";
+import { AgentSessionMessageAcceptedError } from "../../ports/agent-session-send-error";
 import { createAgentSessionLiveStateService } from "../../application/agent-sessions/agent-session-live-state-service";
-import {
-  type HostError,
-  HostOperationError,
-  type HostOperationErrorAggregate,
-} from "../../effect/host-errors";
-import type {
-  AgentSessionLiveAdapterChange,
-  AgentSessionLiveAdapterMutation,
-} from "../../ports/agent-session-live-adapter-port";
+import { HostOperationError, type HostOperationErrorAggregate } from "../../effect/host-errors";
+import type { AgentSessionLiveAdapterChange } from "../../ports/agent-session-live-adapter-port";
 import type { CodexAppServerPort } from "../../ports/codex-app-server-port";
 import type { RuntimeLiveSessionLifecyclePort } from "../../ports/runtime-live-session-lifecycle-port";
 import { createCodexLiveSessionAdapterPreparer } from "./codex-live-session-adapter";
@@ -140,14 +135,16 @@ const createLifecycle = (changes: AgentSessionLiveAdapterChange[]) =>
   ({
     registerRuntimeAdapter: () => Effect.void,
     releaseRuntime: () => Effect.succeed([]),
-    runAdapterMutation: (mutation) =>
-      mutation.pipe(
-        Effect.tap((result) =>
-          Effect.sync(() => {
-            changes.push(...result.changes);
-          }),
+    createRuntimeRegistration: (binding) =>
+      new AgentSessionLiveRegistration(binding, (mutation) =>
+        mutation.pipe(
+          Effect.tap((result) =>
+            Effect.sync(() => {
+              changes.push(...result.changes);
+            }),
+          ),
+          Effect.map((result) => result.value),
         ),
-        Effect.map((result) => result.value),
       ),
   }) satisfies RuntimeLiveSessionLifecyclePort;
 
@@ -556,6 +553,55 @@ describe("createCodexLiveSessionAdapterPreparer", () => {
     await expect(Effect.runPromise(prepared.adapter.listSnapshots("/repo"))).resolves.toEqual([]);
   });
 
+  test("retains acceptance when the live projection cannot publish", async () => {
+    const harness = createControllerHarness();
+    const prepared = await Effect.runPromise(
+      createCodexLiveSessionAdapterPreparer({
+        prepareImageGenerations: async () => {
+          throw new Error("Unexpected image preparation");
+        },
+        liveSessionLifecycle: {
+          ...createLifecycle([]),
+          createRuntimeRegistration: (binding) =>
+            new AgentSessionLiveRegistration(binding, (mutation) =>
+              mutation.pipe(
+                Effect.flatMap(({ value, changes }) =>
+                  changes.some((change) => change.type === "transcript_event")
+                    ? Effect.fail(
+                        new HostOperationError({
+                          operation: "test.publish",
+                          message: "Publication failed",
+                        }),
+                      )
+                    : Effect.succeed(value),
+                ),
+              ),
+            ),
+        },
+        codexAppServer,
+        onBackgroundFailure: noBackgroundFailure,
+        resolveRuntimePolicy,
+        createController: harness.createController,
+      })(runtime),
+    );
+    const result = await Effect.runPromise(
+      Effect.either(
+        prepared.adapter.sendUserMessage({
+          ...ref,
+          sessionScope: { kind: "repository" },
+          parts: [{ kind: "text", text: "Hello" }],
+        }),
+      ),
+    );
+    expect(result._tag).toBe("Left");
+    if (result._tag !== "Left") throw new Error("Expected publication failure");
+    expect(result.left).toBeInstanceOf(AgentSessionMessageAcceptedError);
+    expect(result.left).toMatchObject({
+      failure: { sessionRef: ref, stage: "live_update", acceptedMessage: { type: "user_message" } },
+    });
+    expect(harness.controlInputs.sends).toHaveLength(1);
+  });
+
   test("resolves and injects Codex policy behind the normalized control boundary", async () => {
     const policyScopes: AgentSessionScope[] = [];
     const harness = createControllerHarness();
@@ -935,16 +981,16 @@ describe("createCodexLiveSessionAdapterPreparer", () => {
     const lifecycle = {
       registerRuntimeAdapter: () => Effect.void,
       releaseRuntime: () => Effect.succeed([]),
-      runAdapterMutation: <Success>(
-        mutation: Effect.Effect<AgentSessionLiveAdapterMutation<Success>, HostError>,
-      ) =>
-        mutation.pipe(
-          Effect.tap((result) =>
-            Effect.sync(() => {
-              deliveredChanges.push(...result.changes);
-            }),
+      createRuntimeRegistration: (binding) =>
+        new AgentSessionLiveRegistration(binding, (mutation) =>
+          mutation.pipe(
+            Effect.tap((result) =>
+              Effect.sync(() => {
+                deliveredChanges.push(...result.changes);
+              }),
+            ),
+            Effect.zipRight(Effect.fail(deliveryFailure)),
           ),
-          Effect.zipRight(Effect.fail(deliveryFailure)),
         ),
     } satisfies RuntimeLiveSessionLifecyclePort;
     const prepared = await Effect.runPromise(
@@ -1067,16 +1113,16 @@ describe("createCodexLiveSessionAdapterPreparer", () => {
     const lifecycle = {
       registerRuntimeAdapter: () => Effect.void,
       releaseRuntime: () => Effect.succeed([]),
-      runAdapterMutation: <Success>(
-        mutation: Effect.Effect<AgentSessionLiveAdapterMutation<Success>, HostError>,
-      ) =>
-        Effect.gen(function* () {
-          signalMutationStarted();
-          yield* Effect.promise(() => mutationBarrier);
-          const result = yield* mutation;
-          changes.push(...result.changes);
-          return result.value;
-        }),
+      createRuntimeRegistration: (binding) =>
+        new AgentSessionLiveRegistration(binding, (mutation) =>
+          Effect.gen(function* () {
+            signalMutationStarted();
+            yield* Effect.promise(() => mutationBarrier);
+            const result = yield* mutation;
+            changes.push(...result.changes);
+            return result.value;
+          }),
+        ),
     } satisfies RuntimeLiveSessionLifecyclePort;
     const harness = createControllerHarness();
     const prepared = await Effect.runPromise(
@@ -1409,18 +1455,20 @@ for (const action of ["stop", "release"] as const) {
           },
           liveSessionLifecycle: {
             ...lifecycle,
-            runAdapterMutation: (mutation) =>
-              lifecycle.runAdapterMutation(
-                mutation.pipe(
-                  Effect.flatMap((result) =>
-                    result.changes.some((change) => change.type === "transcript_event")
-                      ? Effect.fail(
-                          new HostOperationError({
-                            operation: "test.publish",
-                            message: "Settlement publication failed",
-                          }),
-                        )
-                      : Effect.succeed(result),
+            createRuntimeRegistration: (binding) =>
+              new AgentSessionLiveRegistration(binding, (mutation) =>
+                lifecycle.createRuntimeRegistration(binding).runMutation(
+                  mutation.pipe(
+                    Effect.flatMap((result) =>
+                      result.changes.some((change) => change.type === "transcript_event")
+                        ? Effect.fail(
+                            new HostOperationError({
+                              operation: "test.publish",
+                              message: "Settlement publication failed",
+                            }),
+                          )
+                        : Effect.succeed(result),
+                    ),
                   ),
                 ),
               ),

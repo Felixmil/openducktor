@@ -14,6 +14,7 @@ export const workspaceRecordSchema = z.object({
 export type WorkspaceRecord = z.infer<typeof workspaceRecordSchema>;
 
 export const gitBranchSchema = z.object({
+  worktreePath: z.string().min(1).optional(),
   name: z.string(),
   isCurrent: z.boolean(),
   isRemote: z.boolean(),

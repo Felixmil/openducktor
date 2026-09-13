@@ -25,8 +25,8 @@ export function KanbanPageHeader({ model }: KanbanPageHeaderProps): ReactElement
           disabled={isCreateTaskDisabled}
           onClick={model.onCreateTask}
         >
-          <Plus className="size-3.5" />
-          Create Task
+          <Plus data-icon="inline-start" aria-hidden="true" />
+          New task
         </Button>
         <Button
           type="button"

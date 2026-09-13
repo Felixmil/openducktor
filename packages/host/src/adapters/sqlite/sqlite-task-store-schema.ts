@@ -7,6 +7,8 @@ import {
 import { sql } from "drizzle-orm";
 import { check, index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import type { SqliteDrizzleSession } from "../../infrastructure/sqlite/sqlite-drizzle-client";
+import { workspaceSessions } from "./sqlite-workspace-session-schema";
+export { workspaceSessions } from "./sqlite-workspace-session-schema";
 
 const nonEmptyEnumOptions = <T extends string>(
   options: readonly T[],
@@ -123,6 +125,7 @@ export const taskAssets = sqliteTable(
 );
 
 export const taskStoreSchema = {
+  workspaceSessions,
   taskAssets,
   taskDocuments,
   tasks,

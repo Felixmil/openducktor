@@ -3,6 +3,9 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import type { PropsWithChildren, ReactElement } from "react";
 import { getAgentSessionActivityStateFromSession } from "@/lib/agent-session-activity-state";
 import { createQueryClient } from "@/lib/query-client";
+import { configureShellBridge, createUnavailableShellBridge } from "@/lib/shell-bridge";
+import { createAgentSessionsStore } from "@/state/agent-sessions-store";
+import { createShellBridgeFixture } from "@/test-utils/focused-fixture";
 import {
   createAgentSessionFixture,
   enableReactActEnvironment,
@@ -69,6 +72,7 @@ const createActivityStore = (
   let activitySnapshot: AgentActivitySessionsSnapshot = {
     workspaceRepoPath: activityWorkspaceRepoPath,
     sessions: activitySessions,
+    repositorySessions: [],
   };
   const listeners = new Set<() => void>();
 
@@ -76,6 +80,7 @@ const createActivityStore = (
     activitySnapshot = {
       workspaceRepoPath: activityWorkspaceRepoPath,
       sessions: activitySessions,
+      repositorySessions: [],
     };
   };
 
@@ -170,7 +175,7 @@ const createHarness = (initialProps: HookArgs, initialSessions: AgentSessionSumm
   );
 
   const sharedHarness = createSharedHookHarness(
-    (props: HookArgs) => useShellAgentActivity(props.activeWorkspaceRepoPath),
+    (props: HookArgs) => useShellAgentActivity(props.activeWorkspaceRepoPath, null),
     initialProps,
     { wrapper },
   );
@@ -186,6 +191,93 @@ beforeEach(() => {
 });
 
 describe("useShellAgentActivity", () => {
+  test.each(["opencode", "codex"] as const)(
+    "joins %s chats and follows repeated input requests without a reload",
+    async (runtimeKind) => {
+      const store = createAgentSessionsStore("/repo");
+      const chat = createAgentSessionFixture({
+        runtimeKind,
+        workingDirectory: "/repo",
+        externalSessionId: "native-chat",
+        sessionAssociation: { kind: "repository" },
+        status: "running",
+      });
+      store.replaceSession(chat);
+      const client = createQueryClient();
+      configureShellBridge(
+        createShellBridgeFixture({
+          client: {
+            workspaceSessionListActive: async (workspaceId) =>
+              workspaceId === "A"
+                ? [
+                    {
+                      id: "chat",
+                      externalSessionId: "native-chat",
+                      runtimeKind,
+                      executionTarget: { kind: "local_repo_root", workingDirectory: "/repo" },
+                      roleSnapshot: null,
+                      selectedModel: null,
+                      manualTitle: "Plan release",
+                      generatedTitle: null,
+                      createdAt: 1,
+                      updatedAt: 1,
+                      archivedAt: null,
+                    },
+                  ]
+                : [],
+          },
+        }),
+      );
+      const wrapper = ({ children }: PropsWithChildren) => (
+        <QueryClientProvider client={client}>
+          <TasksStateContext value={createTasksStateValue()}>
+            <AgentSessionsContext value={store}>{children}</AgentSessionsContext>
+          </TasksStateContext>
+        </QueryClientProvider>
+      );
+      const harness = createSharedHookHarness(
+        (props: { path: string; id: string }) => useShellAgentActivity(props.path, props.id),
+        { path: "/repo", id: "A" },
+        { wrapper },
+      );
+      try {
+        await harness.mount();
+        await harness.waitFor((value) => value.activeSessionCount === 1, 800);
+        expect(harness.getLatest().activeSessions[0]).toMatchObject({
+          workspaceSessionId: "chat",
+          taskTitle: "Plan release",
+        });
+        await harness.run(() => {
+          store.updateSession(chat, (current) => ({
+            ...current,
+            pendingQuestions: [{ requestId: "q1", questions: [] }],
+          }));
+        });
+        expect(harness.getLatest().activeSessionCount).toBe(0);
+        expect(harness.getLatest().waitingForInputCount).toBe(1);
+        await harness.run(() => {
+          store.updateSession(chat, (current) => ({ ...current, pendingQuestions: [] }));
+        });
+        expect(harness.getLatest().waitingForInputCount).toBe(0);
+        expect(harness.getLatest().activeSessionCount).toBe(1);
+        await harness.run(() => {
+          store.updateSession(chat, (current) => ({
+            ...current,
+            pendingQuestions: [{ requestId: "q2", questions: [] }],
+          }));
+        });
+        expect(harness.getLatest().waitingForInputCount).toBe(1);
+        expect(harness.getLatest().waitingForInputSessions[0]?.workspaceSessionId).toBe("chat");
+        await harness.update({ path: "/other", id: "B" });
+        expect(harness.getLatest().waitingForInputCount).toBe(0);
+        expect(harness.getLatest().activeSessionCount).toBe(0);
+      } finally {
+        await harness.unmount();
+        client.clear();
+        configureShellBridge(createUnavailableShellBridge());
+      }
+    },
+  );
   test("shows active sessions from the current workspace session store", async () => {
     const harness = createHarness({ activeWorkspaceRepoPath: "/repo" }, [
       createActivitySession({

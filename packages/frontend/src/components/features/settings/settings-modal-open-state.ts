@@ -16,6 +16,7 @@ export type SettingsModalNavigationState = {
   globalPromptRoleTab: PromptRoleTabId;
   repoPromptRoleTab: PromptRoleTabId;
   selectedReusablePromptId: string | null;
+  selectedCustomAgentRoleId: string | null;
 };
 
 export const INITIAL_SETTINGS_MODAL_NAVIGATION: SettingsModalNavigationState = {
@@ -24,6 +25,7 @@ export const INITIAL_SETTINGS_MODAL_NAVIGATION: SettingsModalNavigationState = {
   globalPromptRoleTab: "shared",
   repoPromptRoleTab: "shared",
   selectedReusablePromptId: null,
+  selectedCustomAgentRoleId: null,
 };
 
 type SettingsModalOpenState = {

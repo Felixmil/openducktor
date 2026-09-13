@@ -29,7 +29,6 @@ import {
   handleSessionError,
   handleSessionFinished,
   handleSessionIdle,
-  handleSessionStarted,
   handleSessionStatus,
   handleSessionTodosUpdated,
   handleTranscriptRetracted,
@@ -102,7 +101,6 @@ const dispatchTranscriptEvent = (
   const context = transcriptEventContext(dependencies, event);
   switch (event.type) {
     case "session_started":
-      handleSessionStarted(context, event);
       return;
     case "assistant_delta":
       handleAssistantDelta(context, event);

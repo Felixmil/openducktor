@@ -1,14 +1,14 @@
 import { Effect } from "effect";
-import { createEventPublishingTaskService } from "../../application/tasks/event-publishing-task-service";
+import {
+  createEventPublishingTaskService,
+  type EventPublishingTaskService,
+} from "../../application/tasks/event-publishing-task-service";
 import {
   createTaskSyncService,
   type TaskEventPublicationReporter,
   type TaskSyncService,
 } from "../../application/tasks/sync/task-sync-service";
-import type {
-  TaskService,
-  TaskServiceWithMutationProgress,
-} from "../../application/tasks/task-service";
+import type { TaskServiceWithMutationProgress } from "../../application/tasks/task-service";
 import type { WorkspaceSettingsService } from "../../application/workspaces/workspace-settings-model";
 import { HostOperationError, type HostOperationErrorAggregate } from "../../effect/host-errors";
 import { createTaskEventStream, type TaskEventStreamPort } from "../../events/task-event-stream";
@@ -16,7 +16,7 @@ import type { HostLifecycleLogger } from "../host-lifecycle";
 
 export type NodeTaskEventServices = {
   taskEventStream: TaskEventStreamPort;
-  taskService: TaskService;
+  taskService: EventPublishingTaskService;
   taskSyncService: TaskSyncService;
 };
 

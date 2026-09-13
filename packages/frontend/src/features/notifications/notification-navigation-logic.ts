@@ -3,8 +3,10 @@ import type {
   AgentSessionRecord,
   NotificationNavigationTarget,
   TaskCard,
+  WorkspaceSession,
 } from "@openducktor/contracts";
 import { buildAgentStudioHref } from "@/pages/agents/query-sync/agent-studio-navigation";
+import { findWorkspaceSessionByIdentity } from "@/state/queries/agent-session-association";
 import { matchesAgentSessionIdentity } from "@/lib/agent-session-identity";
 
 export const ATTENTION_KIND_QUERY_KEY = "attention";
@@ -54,6 +56,7 @@ type NotificationNavigationDependencies = {
   selectWorkspace: (workspaceId: string) => Promise<void>;
   loadTasks: (repoPath: string) => Promise<TaskCard[]>;
   loadTaskSessions: (repoPath: string, taskId: string) => Promise<AgentSessionRecord[]>;
+  loadWorkspaceSessions: (workspaceId: string) => Promise<WorkspaceSession[]>;
   navigate: (href: string, options?: { state?: unknown }) => void;
   reportStale: (message: string) => void;
   openSettings(): void;
@@ -80,11 +83,24 @@ export const navigateToNotificationTarget = async (
 
   const taskId = "taskId" in target ? target.taskId : undefined;
   if (!taskId) {
-    await workspaceSelection;
     if (target.type === "agent_studio_task" || target.type === "kanban_task") {
+      await workspaceSelection;
       return;
     }
-    dependencies.reportStale("Repository session notifications cannot be opened yet.");
+    const [records] = await Promise.all([
+      dependencies.loadWorkspaceSessions(workspace.workspaceId),
+      workspaceSelection,
+    ]);
+    const session = findWorkspaceSessionByIdentity(records, target.session);
+    if (!session || session.archivedAt !== null) {
+      dependencies.reportStale("The exact Workspace Session is no longer available.");
+      return;
+    }
+    const href = `/chats?session=${encodeURIComponent(session.id)}`;
+    dependencies.navigate(
+      target.type === "agent_session" ? href : addNotificationAttention(href, target),
+      { state: { notificationTarget: target } },
+    );
     return;
   }
 

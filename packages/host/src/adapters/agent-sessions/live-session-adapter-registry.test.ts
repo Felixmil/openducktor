@@ -1,4 +1,5 @@
 import { unexpectedRuntimeQueries } from "../../test-support/runtime-query-test-doubles";
+import { AgentSessionLiveRegistration } from "../../ports/agent-session-live-adapter-port";
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import type { AgentSessionLiveAdapterPort } from "../../ports/agent-session-live-adapter-port";
@@ -11,7 +12,10 @@ const adapter = (runtimeId: string): AgentSessionLiveAdapterPort => ({
   releaseGeneratedImageBatch: () => Effect.dieMessage("Unexpected releaseGeneratedImageBatch"),
   describeGeneratedImages: () => Effect.dieMessage("Unexpected describeGeneratedImages"),
   resolveGeneratedImageSource: () => Effect.dieMessage("Unexpected generated image read"),
-  binding: { runtimeId, runtimeKind: "codex", repoPath: "/repo" },
+  binding: new AgentSessionLiveRegistration(
+    { runtimeId, runtimeKind: "codex", repoPath: "/repo" },
+    (mutation) => Effect.map(mutation, ({ value }) => value),
+  ),
   listSnapshots: () => Effect.succeed([]),
   readSnapshot: (candidate) => Effect.succeed({ type: "missing", ref: candidate }),
   loadContext: () => Effect.succeed(null),
@@ -26,7 +30,10 @@ describe("createLiveSessionAdapterRegistry", () => {
     const first = adapter("runtime-1");
     const second = {
       ...adapter("runtime-2"),
-      binding: { runtimeId: "runtime-2", runtimeKind: "opencode" as const, repoPath: "/repo" },
+      binding: new AgentSessionLiveRegistration(
+        { runtimeId: "runtime-2", runtimeKind: "opencode" as const, repoPath: "/repo" },
+        (mutation) => Effect.map(mutation, ({ value }) => value),
+      ),
     };
     await Effect.runPromise(registry.register(first));
     await Effect.runPromise(registry.register(second));

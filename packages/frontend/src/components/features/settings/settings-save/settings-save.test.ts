@@ -65,6 +65,22 @@ const createRepoConfig = (overrides: Partial<SettingsRepoConfig> = {}): Settings
 });
 
 describe("settings save transforms", () => {
+  test("only replaces custom roles when the role section was edited", () => {
+    const snapshot = createSettingsSnapshotFixture({
+      customAgentRoles: [{ id: "reviewer", name: "Reviewer", systemPrompt: "  Review code.\n" }],
+    });
+    expect(prepareSettingsSnapshotForSave(snapshot)).not.toHaveProperty("customAgentRoles");
+    expect(
+      prepareSettingsSnapshotForSave(snapshot, { saveCustomAgentRoles: true }).customAgentRoles,
+    ).toEqual(snapshot.customAgentRoles);
+    expect(
+      prepareSettingsSnapshotForSave(
+        { ...snapshot, customAgentRoles: [] },
+        { saveCustomAgentRoles: true },
+      ).customAgentRoles,
+    ).toEqual([]);
+  });
+
   test("prepares prompt overrides for save", () => {
     const saveReady = preparePromptOverridesForSave({
       "kickoff.spec_initial": {

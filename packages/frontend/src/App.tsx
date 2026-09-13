@@ -4,10 +4,12 @@ import { AppShell } from "@/components/layout/app-shell";
 import { ApplicationOverlays } from "@/components/layout/application-overlays";
 import { ThemeProvider } from "@/components/layout/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { CanonicalRouteRedirect } from "@/lib/canonical-route-redirect";
 import { QueryProvider } from "@/lib/query-provider";
 import { loadNotFoundPage } from "@/pages";
 import { AgentsPage } from "@/pages/agents/agents-page";
 import { KanbanPage } from "@/pages/kanban/kanban-page";
+import WorkspaceSessionsPage from "@/pages/workspace-sessions/workspace-sessions-page";
 import { AppStateProvider } from "@/state";
 import { KanbanBoardLoadingShell } from "./pages/kanban/kanban-board-loading-shell";
 
@@ -71,12 +73,21 @@ export function App({ routerMode = "browser" }: AppProps): ReactElement {
                     path="/kanban"
                     element={withRouteFallback(<KanbanPage />, <KanbanRouteFallback />)}
                   />
-                  <Route path="/agents" element={<AgentsPage />} />
+                  <Route path="/workflows" element={<AgentsPage />} />
+                  <Route path="/chats" element={<WorkspaceSessionsPage />} />
+                  <Route path="/agents" element={<CanonicalRouteRedirect to="/workflows" />} />
+                  <Route
+                    path="/workspace-sessions"
+                    element={<CanonicalRouteRedirect to="/chats" />}
+                  />
                   <Route
                     path="/planner"
-                    element={<Navigate to="/agents?agent=planner" replace />}
+                    element={<Navigate to="/workflows?agent=planner" replace />}
                   />
-                  <Route path="/builder" element={<Navigate to="/agents?agent=build" replace />} />
+                  <Route
+                    path="/builder"
+                    element={<Navigate to="/workflows?agent=build" replace />}
+                  />
                   <Route path="*" element={withRouteFallback(<NotFoundPage />)} />
                 </Route>
               </Routes>

@@ -40,6 +40,7 @@ const createValidation = (
   overrides: Partial<SettingsSaveValidation> = {},
 ): SettingsSaveValidation => ({
   prompt: { hasErrors: false, errorCount: 0 },
+  customAgentRoles: { hasErrors: false, errorCount: 0 },
   reusablePrompts: { hasErrors: false, errorCount: 0 },
   runtimeRequest: { isPending: false, error: null },
   runtimeAvailability: { hasErrors: false, errorCount: 0, invalidKind: null },

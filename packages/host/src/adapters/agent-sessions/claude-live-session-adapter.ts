@@ -4,12 +4,14 @@ import {
   unsupportedGeneratedImageOperations,
 } from "./generated-image-unsupported";
 import {
+  type AcceptedAgentUserMessage,
   type AgentSessionControlSummary,
   acceptedAgentUserMessageSchema,
   agentSessionContextUsageSchema,
   type RuntimeInstanceSummary,
   type RuntimeKind,
 } from "@openducktor/contracts";
+import { AgentSessionMessageAcceptedError } from "../../ports/agent-session-send-error";
 import type { AgentSessionSummary } from "@openducktor/core";
 import { Effect } from "effect";
 import type { z } from "zod";
@@ -125,12 +127,17 @@ export const createClaudeLiveSessionAdapterPreparer =
     Effect.gen(function* () {
       const runtime = yield* requireRuntime(runtimeInput);
       const state = createClaudeLiveSessionState({ runtime });
+      const binding = liveSessionLifecycle.createRuntimeRegistration({
+        runtimeId: runtime.runtimeId,
+        runtimeKind: runtime.kind,
+        repoPath: runtime.repoPath,
+      });
 
       const commit = <Value>(
         operation: string,
         mutation: () => AgentSessionLiveAdapterMutation<Value>,
       ): Effect.Effect<Value, HostError> =>
-        liveSessionLifecycle.runAdapterMutation(
+        binding.runMutation(
           Effect.try({
             try: mutation,
             catch: (cause) =>
@@ -275,11 +282,7 @@ export const createClaudeLiveSessionAdapterPreparer =
         ...unsupportedGeneratedImageOperations,
         resolveGeneratedImageSource: unsupportedGeneratedImageSource,
         supportsSessionControl: true,
-        binding: {
-          runtimeId: runtime.runtimeId,
-          runtimeKind: "claude",
-          repoPath: runtime.repoPath,
-        },
+        binding,
         listSnapshots: (repoPath) => Effect.succeed(state.listSnapshots(repoPath)),
         readSnapshot: (ref) => Effect.succeed(state.readSnapshot(ref)),
         loadContext: (input) =>
@@ -383,40 +386,64 @@ export const createClaudeLiveSessionAdapterPreparer =
             ),
           ),
         sendUserMessage: (input) =>
-          requireSessionWorkingDirectory(input, "send-user-message").pipe(
-            Effect.flatMap(() =>
-              eventCoordinator.runControlMutation(
-                service.sendUserMessage(toClaudeSendInput(input), runtime.runtimeId).pipe(
-                  Effect.mapError(
-                    sessionError("claude-live-session.send-user-message", input.externalSessionId),
-                  ),
-                  Effect.flatMap((event) =>
-                    parseOutput(
-                      acceptedAgentUserMessageSchema,
-                      event,
-                      "claude-live-session.normalize-user-message",
-                    ),
-                  ),
-                  Effect.flatMap((event) =>
-                    requireSessionContext(input.externalSessionId).pipe(
-                      Effect.flatMap((session) =>
-                        commit("claude-live-session.publish-user-message", () => {
-                          state.reactivateSession(input);
-                          return {
-                            value: event,
-                            changes: state.applyEvent(
-                              session,
-                              toClaudeRuntimeUserMessageEvent(event),
-                            ),
-                          };
-                        }),
+          Effect.suspend(() => {
+            let acceptedMessage: AcceptedAgentUserMessage | null = null;
+            return requireSessionWorkingDirectory(input, "send-user-message").pipe(
+              Effect.flatMap(() =>
+                eventCoordinator.runControlMutation(
+                  service.sendUserMessage(toClaudeSendInput(input), runtime.runtimeId).pipe(
+                    Effect.mapError(
+                      sessionError(
+                        "claude-live-session.send-user-message",
+                        input.externalSessionId,
                       ),
                     ),
+                    Effect.flatMap((event) =>
+                      parseOutput(
+                        acceptedAgentUserMessageSchema,
+                        event,
+                        "claude-live-session.normalize-user-message",
+                      ),
+                    ),
+                    Effect.flatMap((event) => {
+                      acceptedMessage = event;
+                      return requireSessionContext(input.externalSessionId).pipe(
+                        Effect.flatMap((session) =>
+                          commit("claude-live-session.publish-user-message", () => {
+                            state.reactivateSession(input);
+                            return {
+                              value: event,
+                              changes: state.applyEvent(
+                                session,
+                                toClaudeRuntimeUserMessageEvent(event),
+                              ),
+                            };
+                          }),
+                        ),
+                      );
+                    }),
                   ),
                 ),
               ),
-            ),
-          ),
+              Effect.mapError((cause) =>
+                acceptedMessage
+                  ? new AgentSessionMessageAcceptedError(
+                      {
+                        sessionRef: {
+                          repoPath: input.repoPath,
+                          runtimeKind: input.runtimeKind,
+                          workingDirectory: input.workingDirectory,
+                          externalSessionId: input.externalSessionId,
+                        },
+                        acceptedMessage,
+                        stage: "live_update",
+                      },
+                      cause,
+                    )
+                  : cause,
+              ),
+            );
+          }),
         updateSessionModel: (input) =>
           eventCoordinator.runControlMutation(
             service

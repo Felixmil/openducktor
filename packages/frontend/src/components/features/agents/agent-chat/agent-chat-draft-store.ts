@@ -8,6 +8,7 @@ import {
 import {
   AGENT_CHAT_DRAFT_STORAGE_MAX_BYTES,
   type AgentChatDraftSessionIdentity,
+  type AgentChatDraftIdentity,
   cleanupExpiredAgentChatDraftStorage as cleanupExpiredDraftStorage,
   readAgentChatDraftFromStorage,
   removeAgentChatDraftFromStorage,
@@ -24,8 +25,8 @@ type StagedAttachment = {
 };
 
 type DraftMemoryEntry = {
-  identity: AgentChatDraftSessionIdentity;
-  taskId: string;
+  identity: AgentChatDraftIdentity;
+  taskId: string | null;
   draft: AgentChatComposerDraft;
   version: number;
   userVersion: number;
@@ -71,8 +72,8 @@ const reportPersistenceError = (cause: unknown): void => {
 };
 
 const createEntry = (
-  identity: AgentChatDraftSessionIdentity,
-  taskId: string,
+  identity: AgentChatDraftIdentity,
+  taskId: string | null,
   draft: AgentChatComposerDraft,
 ): DraftMemoryEntry => ({
   identity,
@@ -97,12 +98,12 @@ const clearEntryTimers = (entry: DraftMemoryEntry): void => {
   entry.cancelTrailingFlush = null;
 };
 
-const readEntry = (identity: AgentChatDraftSessionIdentity): DraftMemoryEntry | null =>
+const readEntry = (identity: AgentChatDraftIdentity): DraftMemoryEntry | null =>
   draftEntries.get(toAgentChatDraftStorageKey(identity)) ?? null;
 
 const upsertEntry = (
-  identity: AgentChatDraftSessionIdentity,
-  taskId: string,
+  identity: AgentChatDraftIdentity,
+  taskId: string | null,
   draft: AgentChatComposerDraft,
 ): DraftMemoryEntry => {
   const key = toAgentChatDraftStorageKey(identity);
@@ -296,8 +297,8 @@ const cleanupExpiredAgentChatDraftsOnce = (): void => {
 };
 
 export const hydrateAgentChatDraft = (
-  identity: AgentChatDraftSessionIdentity,
-  taskId: string,
+  identity: AgentChatDraftIdentity,
+  taskId: string | null,
 ): AgentChatComposerDraft => {
   const existing = readEntry(identity);
   if (existing) {
@@ -327,8 +328,8 @@ export const hydrateAgentChatDraft = (
 };
 
 export const setAgentChatDraft = (
-  identity: AgentChatDraftSessionIdentity,
-  taskId: string,
+  identity: AgentChatDraftIdentity,
+  taskId: string | null,
   draft: AgentChatComposerDraft,
 ): number => {
   const entry = upsertEntry(identity, taskId, draft);
@@ -338,11 +339,11 @@ export const setAgentChatDraft = (
   return entry.userVersion;
 };
 
-export const readAgentChatDraftVersion = (identity: AgentChatDraftSessionIdentity): number | null =>
+export const readAgentChatDraftVersion = (identity: AgentChatDraftIdentity): number | null =>
   readEntry(identity)?.userVersion ?? null;
 
 export const clearAgentChatDraft = (
-  identity: AgentChatDraftSessionIdentity,
+  identity: AgentChatDraftIdentity,
   options?: {
     onlyIfVersion?: number | null;
     throwOnStorageError?: boolean;
@@ -382,7 +383,7 @@ export const clearAgentChatDraft = (
   return true;
 };
 
-export const flushAgentChatDraft = (identity: AgentChatDraftSessionIdentity): Promise<void> => {
+export const flushAgentChatDraft = (identity: AgentChatDraftIdentity): Promise<void> => {
   const entry = readEntry(identity);
   if (!entry) {
     return Promise.resolve();

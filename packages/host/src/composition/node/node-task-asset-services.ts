@@ -2,6 +2,8 @@ import { Effect } from "effect";
 import { createNodeTaskAssetFilePort } from "../../adapters/node/filesystem-task-asset-file-port";
 import { createSqliteTaskAssetRegistry } from "../../adapters/sqlite/sqlite-task-asset-registry";
 import { createSqliteTaskRepository } from "../../adapters/sqlite/sqlite-task-repository";
+import { createSqliteWorkspaceSessionStore } from "../../adapters/sqlite/sqlite-workspace-session-store";
+import type { WorkspaceSessionStorePort } from "../../ports/workspace-session-store-port";
 import { createSqliteTaskRepositoryContextManager } from "../../adapters/sqlite/sqlite-task-repository-context";
 import { createTaskAssetAwareTaskStore } from "../../application/task-assets/task-asset-aware-task-store";
 import {
@@ -15,15 +17,17 @@ import {
 } from "../../application/task-assets/task-asset-staging-service";
 import type { WorkspaceSettingsService } from "../../application/workspaces/workspace-settings-model";
 import { resolveOpenDucktorBaseDir } from "../../config/openducktor-config-dir";
-import type { HostOperationErrorAggregate } from "../../effect/host-errors";
+import { HostOperationError, type HostOperationErrorAggregate } from "../../effect/host-errors";
 import type { TaskStoreError, TaskStorePort } from "../../ports/task-repository-ports";
 import type { HostShutdownStep } from "../host-lifecycle";
 
 export type NodeTaskAssetServices = {
+  workspaceSessionStore: WorkspaceSessionStorePort;
   startupSweep: () => Effect.Effect<void, TaskStoreError>;
   taskAssetReadService: TaskAssetReadService;
   taskAssetStagingService: TaskAssetStagingService;
   taskStoreConnectionShutdownStep: HostShutdownStep;
+  taskAssetStagingShutdownStep: HostShutdownStep;
   taskStore: TaskStorePort;
 };
 
@@ -33,7 +37,7 @@ export const createNodeTaskAssetServices = ({
   processEnv,
   workspaceSettingsService,
 }: {
-  configuredTaskStore?: TaskStorePort;
+  configuredTaskStore?: TaskStorePort | undefined;
   onBackgroundFailure: (failure: HostOperationErrorAggregate) => Effect.Effect<void, never>;
   processEnv: NodeJS.ProcessEnv;
   workspaceSettingsService: WorkspaceSettingsService;
@@ -78,12 +82,27 @@ export const createNodeTaskAssetServices = ({
   });
 
   return {
+    workspaceSessionStore: createSqliteWorkspaceSessionStore(contextManager.withDatabase),
     startupSweep: () =>
       taskAssetRecoveryService
         .startupSweep()
         .pipe(Effect.zipRight(taskAssetStagingService.startupSweep()), Effect.asVoid),
     taskAssetReadService,
     taskAssetStagingService,
+    taskAssetStagingShutdownStep: {
+      label: "task asset staging",
+      run: () =>
+        taskAssetStagingService.shutdownCleanup().pipe(
+          Effect.mapError(
+            (cause) =>
+              new HostOperationError({
+                operation: "host.dispose.task_assets",
+                message: cause.message,
+                cause,
+              }),
+          ),
+        ),
+    },
     taskStoreConnectionShutdownStep: {
       label: "SQLite task store connections",
       run: contextManager.dispose,

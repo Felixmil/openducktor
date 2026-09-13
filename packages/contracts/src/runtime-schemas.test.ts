@@ -545,6 +545,16 @@ describe("runtime schemas", () => {
     expect(current.detached).toBe(true);
   });
 
+  test("branch responses preserve checked-out worktree paths", () => {
+    const branch = {
+      name: "feature/review",
+      isCurrent: false,
+      isRemote: false,
+      worktreePath: "/other checkout",
+    };
+    expect(gitBranchSchema.parse(branch)).toEqual(branch);
+  });
+
   test("git commit-all request and result payloads parse for success and no-op", () => {
     const commitRequest = gitCommitAllRequestSchema.parse({
       repoPath: "/repo",

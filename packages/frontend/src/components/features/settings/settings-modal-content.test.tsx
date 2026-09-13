@@ -20,6 +20,8 @@ const createMockSnapshot = (overrides: Partial<SettingsSnapshot> = {}): Settings
   createSettingsSnapshotFixture(overrides);
 
 const createMockController = (snapshot: SettingsSnapshot) => ({
+  customAgentRoleValidationState: { errorsById: {}, totalErrorCount: 0 },
+  updateCustomAgentRoles: () => {},
   isLoadingSettings: false,
   isLoadingRuntimeDefinitions: false,
   isLoadingRuntimeExecutables: false,
@@ -107,6 +109,7 @@ const createMockController = (snapshot: SettingsSnapshot) => ({
     repositories: 0,
     prompts: 0,
     "reusable-prompts": 0,
+    "custom-agent-roles": 0,
     appearance: 0,
     chat: 0,
     notifications: 0,
@@ -170,6 +173,8 @@ describe("settings modal content", () => {
       globalPromptRoleTab: "shared" as const,
       repoPromptRoleTab: "shared" as const,
       selectedReusablePromptId: null,
+      selectedCustomAgentRoleId: null,
+      onSelectedCustomAgentRoleIdChange: () => {},
       isInteractionDisabled: false,
       controller,
       onRepositorySectionChange: () => {},
@@ -253,6 +258,8 @@ describe("settings modal content", () => {
           globalPromptRoleTab: "shared",
           repoPromptRoleTab: "shared",
           selectedReusablePromptId: null,
+          selectedCustomAgentRoleId: null,
+          onSelectedCustomAgentRoleIdChange: () => {},
           isInteractionDisabled: false,
           controller,
           onRepositorySectionChange: () => {},
@@ -340,6 +347,8 @@ describe("settings modal content", () => {
           globalPromptRoleTab: "shared",
           repoPromptRoleTab: "shared",
           selectedReusablePromptId: null,
+          selectedCustomAgentRoleId: null,
+          onSelectedCustomAgentRoleIdChange: () => {},
           isInteractionDisabled: false,
           controller,
           onRepositorySectionChange: () => {},
@@ -372,6 +381,8 @@ describe("settings modal content", () => {
           globalPromptRoleTab: "shared",
           repoPromptRoleTab: "shared",
           selectedReusablePromptId: null,
+          selectedCustomAgentRoleId: null,
+          onSelectedCustomAgentRoleIdChange: () => {},
           isInteractionDisabled: false,
           controller,
           onRepositorySectionChange: () => {},
@@ -388,7 +399,7 @@ describe("settings modal content", () => {
     expect(html).not.toContain("Select a repository to edit repository scripts");
   });
 
-  test("renders general section with automatic Agent Studio tab setting", () => {
+  test("renders general section with automatic Task workflows tab setting", () => {
     const controller = createMockController(createMockSnapshot());
 
     const html = renderToStaticMarkup(
@@ -398,6 +409,8 @@ describe("settings modal content", () => {
         globalPromptRoleTab: "shared",
         repoPromptRoleTab: "shared",
         selectedReusablePromptId: null,
+        selectedCustomAgentRoleId: null,
+        onSelectedCustomAgentRoleIdChange: () => {},
         isInteractionDisabled: false,
         controller,
         onRepositorySectionChange: () => {},
@@ -407,7 +420,7 @@ describe("settings modal content", () => {
       }),
     );
 
-    expect(html).toContain("Open Agent Studio tab for background sessions");
+    expect(html).toContain("Open Task workflows tab for background sessions");
     expect(html).toContain('aria-checked="true"');
   });
 
@@ -425,6 +438,8 @@ describe("settings modal content", () => {
         globalPromptRoleTab: "shared",
         repoPromptRoleTab: "shared",
         selectedReusablePromptId: null,
+        selectedCustomAgentRoleId: null,
+        onSelectedCustomAgentRoleIdChange: () => {},
         isInteractionDisabled: false,
         controller,
         onRepositorySectionChange: () => {},
@@ -455,6 +470,8 @@ describe("settings modal content", () => {
           globalPromptRoleTab: "shared",
           repoPromptRoleTab: "shared",
           selectedReusablePromptId: null,
+          selectedCustomAgentRoleId: null,
+          onSelectedCustomAgentRoleIdChange: () => {},
           isInteractionDisabled: false,
           controller,
           onRepositorySectionChange: () => {},
@@ -493,6 +510,8 @@ describe("settings modal content", () => {
         globalPromptRoleTab: "shared",
         repoPromptRoleTab: "shared",
         selectedReusablePromptId: "prompt-1",
+        selectedCustomAgentRoleId: null,
+        onSelectedCustomAgentRoleIdChange: () => {},
         isInteractionDisabled: false,
         controller,
         onRepositorySectionChange: () => {},
@@ -524,6 +543,8 @@ describe("settings modal content", () => {
           globalPromptRoleTab: "shared",
           repoPromptRoleTab: "shared",
           selectedReusablePromptId: null,
+          selectedCustomAgentRoleId: null,
+          onSelectedCustomAgentRoleIdChange: () => {},
           isInteractionDisabled: false,
           controller,
           onRepositorySectionChange: () => {},
@@ -556,6 +577,8 @@ describe("settings modal content", () => {
         globalPromptRoleTab: "shared",
         repoPromptRoleTab: "shared",
         selectedReusablePromptId: null,
+        selectedCustomAgentRoleId: null,
+        onSelectedCustomAgentRoleIdChange: () => {},
         isInteractionDisabled: false,
         controller,
         onRepositorySectionChange: () => {},
@@ -583,6 +606,8 @@ describe("settings modal content", () => {
         globalPromptRoleTab: "shared",
         repoPromptRoleTab: "shared",
         selectedReusablePromptId: null,
+        selectedCustomAgentRoleId: null,
+        onSelectedCustomAgentRoleIdChange: () => {},
         isInteractionDisabled: false,
         controller,
         onRepositorySectionChange: () => {},
@@ -609,6 +634,8 @@ describe("settings modal content", () => {
           globalPromptRoleTab: "shared",
           repoPromptRoleTab: "shared",
           selectedReusablePromptId: null,
+          selectedCustomAgentRoleId: null,
+          onSelectedCustomAgentRoleIdChange: () => {},
           isInteractionDisabled: false,
           controller,
           onRepositorySectionChange: () => {},
@@ -634,6 +661,8 @@ describe("settings modal content", () => {
         globalPromptRoleTab: "shared",
         repoPromptRoleTab: "shared",
         selectedReusablePromptId: null,
+        selectedCustomAgentRoleId: null,
+        onSelectedCustomAgentRoleIdChange: () => {},
         isInteractionDisabled: false,
         controller,
         onRepositorySectionChange: () => {},
@@ -657,6 +686,8 @@ describe("settings modal content", () => {
         globalPromptRoleTab: "shared",
         repoPromptRoleTab: "shared",
         selectedReusablePromptId: null,
+        selectedCustomAgentRoleId: null,
+        onSelectedCustomAgentRoleIdChange: () => {},
         isInteractionDisabled: false,
         controller,
         onRepositorySectionChange: () => {},
@@ -683,6 +714,8 @@ describe("settings modal content", () => {
         globalPromptRoleTab: "shared",
         repoPromptRoleTab: "shared",
         selectedReusablePromptId: null,
+        selectedCustomAgentRoleId: null,
+        onSelectedCustomAgentRoleIdChange: () => {},
         isInteractionDisabled: false,
         controller,
         onRepositorySectionChange: () => {},
@@ -709,6 +742,8 @@ describe("settings modal content", () => {
         globalPromptRoleTab: "shared",
         repoPromptRoleTab: "shared",
         selectedReusablePromptId: null,
+        selectedCustomAgentRoleId: null,
+        onSelectedCustomAgentRoleIdChange: () => {},
         isInteractionDisabled: false,
         controller,
         onRepositorySectionChange: () => {},

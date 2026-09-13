@@ -2,6 +2,7 @@ import type { SettingsSnapshot } from "@openducktor/contracts";
 import { useCallback, useState } from "react";
 
 export type DirtySections = {
+  customAgentRoles: boolean;
   general: boolean;
   appearance: boolean;
   chat: boolean;
@@ -16,6 +17,7 @@ export type DirtySections = {
 };
 
 export const EMPTY_DIRTY_SECTIONS: DirtySections = {
+  customAgentRoles: false,
   general: false,
   appearance: false,
   chat: false,

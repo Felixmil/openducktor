@@ -97,6 +97,7 @@ export const useSettingsModalPromptValidation = ({
     repositories: promptValidationState.repoTotalErrorCount,
     prompts: promptValidationState.globalErrorCount,
     "reusable-prompts": 0,
+    "custom-agent-roles": 0,
     appearance: 0,
     chat: 0,
     notifications: 0,

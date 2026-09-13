@@ -132,6 +132,21 @@ const getFieldButton = (testId: string): HTMLButtonElement => {
 };
 
 describe("SessionStartModal", () => {
+  test("places Effort beside Runtime and model without changing variant selection", () => {
+    const view = render(<SessionStartModal model={createModel()} />);
+    try {
+      const modelField = view.getByTestId("session-start-model-picker-field");
+      const variantField = view.getByTestId("session-start-variant-field");
+      expect(modelField.parentElement).toBe(variantField.parentElement);
+      expect(modelField.parentElement?.classList.contains("sm:grid-cols-2")).toBe(true);
+      expect(view.getByRole("button", { name: "Effort" })).toBeTruthy();
+      expect(view.queryByText("Variant")).toBeNull();
+      expect(view.getByRole("dialog").classList.contains("sm:max-w-2xl")).toBe(true);
+    } finally {
+      view.unmount();
+    }
+  });
+
   test("submits through the form action", () => {
     const onConfirm = mock(() => {});
     const { unmount } = render(
@@ -268,9 +283,7 @@ describe("SessionStartModal", () => {
     );
 
     expect(
-      screen.getByText(
-        "Reuse mode keeps the previous session runtime profile, model, and variant.",
-      ),
+      screen.getByText("Reuse mode keeps the previous session runtime profile, model, and effort."),
     ).toBeTruthy();
     expect(screen.getByText("Runtime profile")).toBeTruthy();
     expect(screen.queryByText("Loading profiles for the selected runtime.")).toBeNull();

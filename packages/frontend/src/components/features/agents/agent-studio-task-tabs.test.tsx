@@ -266,7 +266,7 @@ describe("AgentStudioTaskTabs", () => {
       ),
     );
 
-    const tabList = screen.getByRole("tablist", { name: "Agent Studio task tabs" });
+    const tabList = screen.getByRole("tablist", { name: "Task workflow tabs" });
     const scrollRegion = tabList.parentElement?.parentElement;
     const newTabButton = screen.getByRole("button", { name: "Open new task tab" });
     const rightPanelToggle = screen.getByRole("button", { name: "Hide task execution panel" });

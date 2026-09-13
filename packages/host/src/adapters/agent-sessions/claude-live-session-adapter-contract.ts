@@ -33,7 +33,7 @@ export type ClaudeRuntimeSessionAdapterPreparer = (
 
 export type CreateClaudeLiveSessionAdapterPreparerInput = {
   readonly eventHub: ClaudeAgentSdkEventHub;
-  readonly liveSessionLifecycle: Pick<RuntimeLiveSessionLifecyclePort, "runAdapterMutation">;
+  readonly liveSessionLifecycle: Pick<RuntimeLiveSessionLifecyclePort, "createRuntimeRegistration">;
   readonly service: Pick<
     ClaudeAgentSdkService,
     | "resolveSessionParent"

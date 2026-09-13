@@ -78,7 +78,8 @@ for (const { message, error, malformed } of requestCases) {
       expect(
         harness.messages("affected").some((entry) => entry.content === "Keep this explanation."),
       ).toBe(true);
-      expect(harness.session("other")).toBe(otherBefore);
+      expect(harness.session("other")).toEqual(otherBefore);
+      expect(harness.session("other").messages).toBe(otherBefore.messages);
       const failures = harness.events.slice(eventCount);
       expect(failures.every((event) => event.externalSessionId === "thread-affected")).toBe(true);
       expect(failures[0]).toMatchObject({

@@ -145,10 +145,13 @@ export const useSettingsModalSaveOrchestration = ({
         await saveGlobalGitConfig(saveReadyGit);
       } else {
         const latestSnapshot = await loadSettingsSnapshot();
-        const saveReadySnapshot = prepareSettingsSnapshotForSave({
-          ...snapshotDraft,
-          agentModelFavorites: latestSnapshot.agentModelFavorites,
-        });
+        const saveReadySnapshot = prepareSettingsSnapshotForSave(
+          {
+            ...snapshotDraft,
+            agentModelFavorites: latestSnapshot.agentModelFavorites,
+          },
+          { saveCustomAgentRoles: dirtySections.customAgentRoles },
+        );
         await saveSettingsSnapshot(saveReadySnapshot);
       }
 

@@ -209,6 +209,8 @@ export type AgentSessionState = {
   imageGenerationTurnStarts?: ReadonlySet<string>;
   imageGenerationFailureTimestamp?: string;
   imageGenerationTurnEnds?: ReadonlyMap<string, "interrupted" | "turn_ended" | "runtime_failure">;
+  /** Host execution identity. Terminal activity applies only to this episode. */
+  executionEpisodeId?: string | undefined;
   historyLoadState: AgentSessionHistoryLoadState;
   historyLoadFailure?: SessionHistoryFailure | null;
   messages: AgentSessionMessages;

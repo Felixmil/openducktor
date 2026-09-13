@@ -1,4 +1,5 @@
 import { unexpectedRuntimeQueries } from "../../test-support/runtime-query-test-doubles";
+import { AgentSessionLiveRegistration } from "../../ports/agent-session-live-adapter-port";
 import { describe, expect, test } from "bun:test";
 import type {
   AgentRepositorySessionStartInput,
@@ -58,7 +59,10 @@ const createHarness = async (
     releaseGeneratedImageBatch: () => Effect.dieMessage("Unexpected releaseGeneratedImageBatch"),
     describeGeneratedImages: () => Effect.dieMessage("Unexpected describeGeneratedImages"),
     resolveGeneratedImageSource: () => Effect.dieMessage("Unexpected generated image read"),
-    binding: { runtimeId: "runtime-1", runtimeKind: "opencode", repoPath: "/repo" },
+    binding: new AgentSessionLiveRegistration(
+      { runtimeId: "runtime-1", runtimeKind: "opencode", repoPath: "/repo" },
+      (mutation) => Effect.map(mutation, ({ value }) => value),
+    ),
     listSnapshots: () => Effect.succeed(snapshots),
     readSnapshot: (ref) => {
       const session = snapshots.find(

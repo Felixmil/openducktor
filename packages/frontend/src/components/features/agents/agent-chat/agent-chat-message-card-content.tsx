@@ -24,6 +24,7 @@ import {
 } from "./agent-chat-message-card-model";
 import type { SubagentMeta, ToolMeta } from "./agent-chat-message-card-model.types";
 import { RegularToolMessage } from "./agent-chat-regular-tool-message";
+import { AgentChatTaskTool } from "./agent-chat-task-tool";
 import { AgentChatSkillReferenceChip } from "./agent-chat-skill-reference-chip";
 import { AgentChatSubagentReferenceChip } from "./agent-chat-subagent-reference-chip";
 import { AgentChatTranscriptProse } from "./agent-chat-transcript-prose";
@@ -760,6 +761,18 @@ export const MessageBody = ({
   }
 
   if (meta?.kind === "tool") {
+    if (toolCallPresentation?.kind === "task") {
+      return (
+        <AgentChatTaskTool
+          meta={meta}
+          tool={toolCallPresentation.taskTool}
+          timeLabel={timeLabel}
+          messageContent={message.content}
+          messageTimestamp={message.timestamp}
+          sessionWorkingDirectory={sessionWorkingDirectory}
+        />
+      );
+    }
     return (
       <ToolMessageBody
         message={message}

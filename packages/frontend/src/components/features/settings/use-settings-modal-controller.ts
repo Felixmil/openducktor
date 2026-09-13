@@ -27,6 +27,10 @@ import { invalidEnabledRuntime } from "@/state/operations/runtime-executables/ru
 import type { RuntimeExecutableValidationState } from "@/state/queries/use-runtime-executable-validation";
 import { AGENT_MODEL_FAVORITES_MUTATION_KEY } from "@/state/mutations/agent-model-favorites";
 import { useAgentModelFavorites } from "@/state/mutations/use-agent-model-favorites";
+import {
+  validateCustomAgentRoleDrafts,
+  type CustomAgentRoleValidationState,
+} from "@/state/read-models/custom-agent-role-settings";
 import type { RuntimeModelCatalogQueryResource } from "@/state/queries/use-runtime-model-catalogs";
 import { buildNewCodexDangerousSelectionKey } from "./settings-codex-risk-policy";
 import type { PromptRoleTabId, SettingsSectionId } from "./settings-modal-constants";
@@ -49,6 +53,12 @@ import { useSettingsModalSnapshotState } from "./use-settings-modal-snapshot-sta
 import { useSettingsRuntimeExecutableSetup } from "./use-settings-runtime-executable-setup";
 
 export type SettingsModalController = {
+  customAgentRoleValidationState: CustomAgentRoleValidationState;
+  updateCustomAgentRoles: (
+    updater: (
+      current: SettingsSnapshot["customAgentRoles"],
+    ) => SettingsSnapshot["customAgentRoles"],
+  ) => void;
   isLoadingSettings: boolean;
   isLoadingRuntimeDefinitions: boolean;
   isLoadingRuntimeExecutables: boolean;
@@ -279,6 +289,10 @@ export const useSettingsModalController = ({
     selectedWorkspaceId,
   });
   const reusablePromptValidationState = useSettingsModalReusablePromptValidation({ snapshotDraft });
+  const customAgentRoleValidationState = useMemo(
+    () => validateCustomAgentRoleDrafts(snapshotDraft?.customAgentRoles ?? []),
+    [snapshotDraft?.customAgentRoles],
+  );
   const hasReusablePromptValidationErrors = reusablePromptValidationState.totalErrorCount > 0;
   const {
     runtimeAvailabilityValidationState,
@@ -312,6 +326,7 @@ export const useSettingsModalController = ({
     updateGlobalAppearanceSettings: applyGlobalAppearanceSettingsUpdate,
     updateAgentRuntimes: applyAgentRuntimesUpdate,
     updateReusablePrompts: applyReusablePromptsUpdate,
+    updateCustomAgentRoles: applyCustomAgentRolesUpdate,
     updateGlobalKanbanSettings: applyGlobalKanbanSettingsUpdate,
     updateGlobalAutopilotSettings: applyGlobalAutopilotSettingsUpdate,
     updateGlobalPromptOverrides: applyGlobalPromptOverridesUpdate,
@@ -357,10 +372,12 @@ export const useSettingsModalController = ({
         repoScriptValidationErrorCount,
       runtimes: runtimeAvailabilityValidationState.runtimeExecutableErrors.length,
       "reusable-prompts": reusablePromptValidationState.totalErrorCount,
+      "custom-agent-roles": customAgentRoleValidationState.totalErrorCount,
     }),
     [
       repoScriptValidationErrorCount,
       reusablePromptValidationState.totalErrorCount,
+      customAgentRoleValidationState.totalErrorCount,
       runtimeAvailabilityValidationState.totalErrorCount,
       runtimeAvailabilityValidationState.runtimeExecutableErrors.length,
       settingsSectionErrorCountById,
@@ -380,6 +397,10 @@ export const useSettingsModalController = ({
     snapshotDraft,
     dirtySections,
     validation: {
+      customAgentRoles: {
+        hasErrors: customAgentRoleValidationState.totalErrorCount > 0,
+        errorCount: customAgentRoleValidationState.totalErrorCount,
+      },
       prompt: {
         hasErrors: hasPromptValidationErrors,
         errorCount: promptValidationState.totalErrorCount,
@@ -422,6 +443,7 @@ export const useSettingsModalController = ({
       updateGlobalAppearanceSettings: applyGlobalAppearanceSettingsUpdate,
       updateAgentRuntimes: applyAgentRuntimesUpdate,
       updateReusablePrompts: applyReusablePromptsUpdate,
+      updateCustomAgentRoles: applyCustomAgentRolesUpdate,
       updateGlobalKanbanSettings: applyGlobalKanbanSettingsUpdate,
       updateGlobalAutopilotSettings: applyGlobalAutopilotSettingsUpdate,
       updateGlobalPromptOverrides: applyGlobalPromptOverridesUpdate,
@@ -439,6 +461,7 @@ export const useSettingsModalController = ({
       applyGlobalAppearanceSettingsUpdate,
       applyAgentRuntimesUpdate,
       applyReusablePromptsUpdate,
+      applyCustomAgentRolesUpdate,
       applyGlobalKanbanSettingsUpdate,
       applyGlobalAutopilotSettingsUpdate,
       applyGlobalPromptOverridesUpdate,
@@ -457,6 +480,7 @@ export const useSettingsModalController = ({
     updateGlobalAppearanceSettings,
     updateAgentRuntimes,
     updateReusablePrompts,
+    updateCustomAgentRoles,
     updateGlobalKanbanSettings,
     updateGlobalAutopilotSettings,
     updateGlobalPromptOverrides,
@@ -485,6 +509,8 @@ export const useSettingsModalController = ({
   }
 
   return {
+    customAgentRoleValidationState,
+    updateCustomAgentRoles,
     isLoadingSettings,
     isLoadingRuntimeDefinitions,
     isLoadingRuntimeExecutables,

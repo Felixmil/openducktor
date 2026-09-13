@@ -12,6 +12,7 @@ import { Effect } from "effect";
 import { HostValidationError } from "../../effect/host-errors";
 import type { SettingsConfigPort } from "../../ports/settings-config-port";
 import { buildAgentStudioStateUpdate } from "./workspace-agent-studio-state";
+import { createCustomAgentRoleOperations } from "./custom-agent-role-operations";
 import {
   buildMergedRepoConfig,
   ensureRepoPathAvailable,
@@ -44,6 +45,9 @@ const withSerializedConfigWrites = (
 
   return {
     ...service,
+    createCustomAgentRole: (input) => serialize(service.createCustomAgentRole(input)),
+    updateCustomAgentRole: (id, input) => serialize(service.updateCustomAgentRole(id, input)),
+    deleteCustomAgentRole: (id) => serialize(service.deleteCustomAgentRole(id)),
     addWorkspace: (input) => serialize(service.addWorkspace(input)),
     selectWorkspace: (workspaceId) => serialize(service.selectWorkspace(workspaceId)),
     reorderWorkspaces: (workspaceOrder) => serialize(service.reorderWorkspaces(workspaceOrder)),
@@ -65,6 +69,7 @@ const withSerializedConfigWrites = (
 const createUnserializedWorkspaceSettingsService = (
   settingsConfig: SettingsConfigPort,
 ): WorkspaceSettingsService => ({
+  ...createCustomAgentRoleOperations(settingsConfig),
   listWorkspaces() {
     return Effect.gen(function* () {
       const config = yield* loadGlobalConfig(settingsConfig);
@@ -356,8 +361,8 @@ const createUnserializedWorkspaceSettingsService = (
         snapshot.workspaces,
       );
       const nextConfig = yield* Effect.try({
-        try: () =>
-          globalConfigSchema.parse({
+        try: () => {
+          const next = {
             ...config,
             git: snapshot.git,
             general: snapshot.general,
@@ -372,7 +377,11 @@ const createUnserializedWorkspaceSettingsService = (
             agentModelFavorites: config.agentModelFavorites,
             workspaces,
             globalPromptOverrides: snapshot.globalPromptOverrides,
-          }),
+          };
+          if (snapshot.customAgentRoles !== undefined)
+            next.customAgentRoles = snapshot.customAgentRoles;
+          return globalConfigSchema.parse(next);
+        },
         catch: (cause) =>
           new HostValidationError({
             message: cause instanceof Error ? cause.message : String(cause),

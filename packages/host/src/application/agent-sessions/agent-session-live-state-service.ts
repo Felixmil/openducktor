@@ -24,35 +24,37 @@ import {
   agentSessionContextUsageSchema,
   agentSessionLiveLoadDiffResultSchema,
   agentSessionLiveReadResultSchema,
-  agentSessionLiveRefSchema,
   agentSessionLiveSnapshotSchema,
 } from "@openducktor/contracts";
 import { agentSessionRefKey } from "@openducktor/core";
-import { Cause, Effect, Exit } from "effect";
-import type { z } from "zod";
-import {
-  type HostError,
-  HostInvariantError,
-  HostOperationError,
-  HostValidationError,
-} from "../../effect/host-errors";
+import { Effect } from "effect";
+import { type HostError, HostInvariantError, HostValidationError } from "../../effect/host-errors";
+import type { AgentSessionLiveRegistration } from "../../ports/agent-session-live-adapter-port";
 import type {
   AgentSessionLiveAdapterChange,
-  AgentSessionLiveAdapterMutation,
+  AgentSessionLiveAdapterBinding,
   AgentSessionLiveAdapterPort,
   AgentSessionLiveAdapterRegistryPort,
+  AgentSessionRuntimeAdapterPort,
+  AgentSessionLiveAdapterScope,
 } from "../../ports/agent-session-live-adapter-port";
+import type { AgentSessionPersistencePort } from "../../ports/agent-session-persistence-port";
+import { AgentSessionMessageAcceptedError } from "../../ports/agent-session-send-error";
 import {
-  formatAgentSessionLiveFaultLog,
+  type AgentSessionLiveEnvelopePublisher,
+  type AgentSessionLiveFaultLogger,
+  createAgentSessionLiveEnvelopePublisher,
   toAgentSessionLiveEnvelope,
-  toAgentSessionLiveEnvelopePublishError,
 } from "./agent-session-live-envelope";
 import { createLiveStateCoordinator, type LiveStateCoordinator } from "./live-state-coordinator";
+import { createAgentSessionLiveRuntimeLifecycle } from "./agent-session-live-runtime-lifecycle";
+import { parseAdapterOutput } from "./agent-session-live-validation";
 import { createAgentSessionExecutionEpisodes } from "./agent-session-execution-episodes";
 
-export type AgentSessionLiveEnvelopePublisher = (envelope: AgentSessionLiveEnvelope) => void;
-
-export type AgentSessionLiveFaultLogger = (message: string) => Effect.Effect<void, HostError>;
+export type {
+  AgentSessionLiveEnvelopePublisher,
+  AgentSessionLiveFaultLogger,
+} from "./agent-session-live-envelope";
 
 export type AgentSessionLiveStateService = {
   readonly refresh: (input: AgentSessionLiveRefreshInput) => Effect.Effect<void, HostError>;
@@ -99,85 +101,34 @@ export type AgentSessionLiveStateService = {
   readonly releaseRuntime: (
     runtimeId: string,
   ) => Effect.Effect<ReadonlyArray<AgentSessionLiveRef>, HostError>;
-  readonly runAdapterMutation: <Success>(
-    mutation: Effect.Effect<AgentSessionLiveAdapterMutation<Success>, HostError>,
-  ) => Effect.Effect<Success, HostError>;
+  readonly createRuntimeRegistration: (
+    binding: AgentSessionLiveAdapterBinding,
+  ) => AgentSessionLiveRegistration;
 };
 
 export type CreateAgentSessionLiveStateServiceInput = {
+  readonly persistence?: AgentSessionPersistencePort;
   readonly adapterRegistry: AgentSessionLiveAdapterRegistryPort;
   readonly faultLog: AgentSessionLiveFaultLogger;
   readonly publish: AgentSessionLiveEnvelopePublisher;
   readonly coordinator?: LiveStateCoordinator;
 };
 
-const parseAdapterOutput = <Schema extends z.ZodType, Input>(
-  schema: Schema,
-  value: Input,
-  operation: string,
-): Effect.Effect<z.output<Schema>, HostValidationError<{ operation: string }>> =>
-  Effect.try({
-    try: () => schema.parse(value),
-    catch: (cause) =>
-      new HostValidationError({
-        message: cause instanceof Error ? cause.message : String(cause),
-        cause,
-        details: { operation },
-      }),
-  });
-
 export const createAgentSessionLiveStateService = ({
   adapterRegistry,
   faultLog,
   publish,
   coordinator = createLiveStateCoordinator(),
+  persistence,
 }: CreateAgentSessionLiveStateServiceInput): AgentSessionLiveStateService => {
   // Runtime reads can wait on the network, so they need a gate that does not block live events.
   const refreshGate = createLiveStateCoordinator();
   const executionEpisodes = createAgentSessionExecutionEpisodes();
-  const publishEnvelopeResult = (envelope: AgentSessionLiveEnvelope) =>
-    Effect.gen(function* () {
-      if (envelope.type === "fault") {
-        const faultLogResult = yield* Effect.either(
-          faultLog(formatAgentSessionLiveFaultLog(envelope)),
-        );
-        const publishResult = yield* Effect.either(
-          Effect.try({
-            try: () => publish(envelope),
-            catch: (cause) => toAgentSessionLiveEnvelopePublishError(cause, envelope.type),
-          }),
-        );
-        if (faultLogResult._tag === "Left" && publishResult._tag === "Left") {
-          return yield* Effect.fail(
-            new HostOperationError({
-              operation: "agent-session-live.publish-fault",
-              message: `Fault logging failed: ${faultLogResult.left.message}\nFault envelope publication failed: ${publishResult.left.message}`,
-              cause: {
-                faultLogFailure: faultLogResult.left,
-                publishFailure: publishResult.left,
-              },
-              details: {
-                eventType: envelope.type,
-                faultLogFailure: faultLogResult.left,
-                publishFailure: publishResult.left,
-              },
-            }),
-          );
-        }
-        if (faultLogResult._tag === "Left") {
-          return faultLogResult.left;
-        }
-        if (publishResult._tag === "Left") {
-          return yield* Effect.fail(publishResult.left);
-        }
-        return null;
-      }
-      yield* Effect.try({
-        try: () => publish(envelope),
-        catch: (cause) => toAgentSessionLiveEnvelopePublishError(cause, envelope.type),
-      });
-      return null;
-    });
+  const publishEnvelopeResult = createAgentSessionLiveEnvelopePublisher(
+    publish,
+    faultLog,
+    persistence,
+  );
 
   const publishEnvelope = (envelope: AgentSessionLiveEnvelope) =>
     publishEnvelopeResult(envelope).pipe(
@@ -225,6 +176,25 @@ export const createAgentSessionLiveStateService = ({
         seen.add(key);
       }
       return executionEpisodes.replaceSnapshots(repoPath, flattened);
+    });
+
+  const lifecycle = createAgentSessionLiveRuntimeLifecycle({
+    adapterRegistry,
+    coordinator,
+    publishChanges,
+    publishEnvelope,
+    listSnapshots,
+  });
+
+  const runControl = <A>(
+    scope: AgentSessionLiveAdapterScope,
+    control: (adapter: AgentSessionRuntimeAdapterPort) => Effect.Effect<A, HostError>,
+  ) =>
+    Effect.gen(function* () {
+      const adapter = yield* adapterRegistry.resolveControlForScope(scope);
+      const result = yield* control(adapter);
+      yield* lifecycle.requireAttached(adapter.binding);
+      return result;
     });
 
   const service: AgentSessionLiveStateService = {
@@ -311,166 +281,40 @@ export const createAgentSessionLiveStateService = ({
       adapterRegistry
         .resolveForScope(input)
         .pipe(Effect.flatMap((adapter) => adapter.replyQuestion(input))),
-    startSession: (input) =>
-      adapterRegistry
-        .resolveControlForScope(input)
-        .pipe(Effect.flatMap((adapter) => adapter.startSession(input))),
-    resumeSession: (input) =>
-      adapterRegistry
-        .resolveControlForScope(input)
-        .pipe(Effect.flatMap((adapter) => adapter.resumeSession(input))),
-    forkSession: (input) =>
-      adapterRegistry
-        .resolveControlForScope(input)
-        .pipe(Effect.flatMap((adapter) => adapter.forkSession(input))),
+    startSession: (input) => runControl(input, (adapter) => adapter.startSession(input)),
+    resumeSession: (input) => runControl(input, (adapter) => adapter.resumeSession(input)),
+    forkSession: (input) => runControl(input, (adapter) => adapter.forkSession(input)),
     sendUserMessage: (input) =>
-      adapterRegistry
-        .resolveControlForScope(input)
-        .pipe(Effect.flatMap((adapter) => adapter.sendUserMessage(input))),
-    updateSessionModel: (input) =>
-      adapterRegistry
-        .resolveControlForScope(input)
-        .pipe(Effect.flatMap((adapter) => adapter.updateSessionModel(input))),
-    stopSession: (input) =>
-      adapterRegistry
-        .resolveControlForScope(input)
-        .pipe(Effect.flatMap((adapter) => adapter.stopSession(input))),
-    releaseSession: (input) =>
-      adapterRegistry
-        .resolveControlForScope(input)
-        .pipe(Effect.flatMap((adapter) => adapter.releaseSession(input))),
-    registerRuntimeAdapter: (adapter) => {
-      let registered = false;
-      return Effect.gen(function* () {
-        yield* coordinator.run(adapterRegistry.register(adapter));
-        registered = true;
-        yield* adapter.refreshSnapshots?.(adapter.binding.repoPath) ?? Effect.void;
-        yield* coordinator.run(
-          Effect.gen(function* () {
-            const snapshots = yield* adapter.listSnapshots(adapter.binding.repoPath);
-            const validatedSnapshots = yield* Effect.forEach(snapshots, (snapshot) =>
-              parseAdapterOutput(
-                agentSessionLiveSnapshotSchema,
-                snapshot,
-                "agent-session-live.register-runtime",
+      Effect.gen(function* () {
+        const adapter = yield* adapterRegistry.resolveControlForScope(input);
+        const acceptedMessage = yield* adapter.sendUserMessage(input);
+        yield* lifecycle.requireAttached(adapter.binding).pipe(
+          Effect.mapError(
+            (cause) =>
+              new AgentSessionMessageAcceptedError(
+                {
+                  sessionRef: {
+                    repoPath: input.repoPath,
+                    runtimeKind: input.runtimeKind,
+                    workingDirectory: input.workingDirectory,
+                    externalSessionId: input.externalSessionId,
+                  },
+                  acceptedMessage,
+                  stage: "live_update",
+                },
+                cause,
               ),
-            );
-            yield* publishChanges(
-              validatedSnapshots.map((snapshot) => ({
-                type: "session_upsert" as const,
-                snapshot,
-              })),
-            );
-          }),
+          ),
         );
-      }).pipe(
-        Effect.onError(() =>
-          registered
-            ? adapterRegistry.remove(adapter.binding.runtimeId).pipe(Effect.asVoid)
-            : Effect.void,
-        ),
-      );
-    },
-    releaseRuntime: (runtimeId) =>
-      coordinator.run(
-        Effect.gen(function* () {
-          const adapter = yield* adapterRegistry.remove(runtimeId);
-          if (!adapter) {
-            return [];
-          }
-          const snapshotExit = yield* Effect.exit(
-            Effect.gen(function* () {
-              const snapshots = yield* adapter.listSnapshots(adapter.binding.repoPath);
-              const validated = yield* Effect.forEach(snapshots, (snapshot) =>
-                parseAdapterOutput(
-                  agentSessionLiveSnapshotSchema,
-                  snapshot,
-                  "agent-session-live.release-runtime",
-                ),
-              );
-              return validated.map((snapshot) => snapshot.ref);
-            }),
-          );
-          const settlementExit = yield* Effect.exit(
-            Effect.gen(function* () {
-              if (!adapter.settleRuntimeTranscript) return;
-              const events = yield* adapter.settleRuntimeTranscript();
-              yield* publishChanges(
-                events.map((event) => ({ type: "transcript_event" as const, event })),
-              );
-            }),
-          );
-          const releaseExit = yield* Effect.exit(adapter.releaseRuntime());
-          const releasedRefsExit = Exit.isSuccess(releaseExit)
-            ? yield* Effect.exit(
-                Effect.forEach(releaseExit.value, (ref) =>
-                  parseAdapterOutput(
-                    agentSessionLiveRefSchema,
-                    ref,
-                    "agent-session-live.release-runtime-refs",
-                  ),
-                ),
-              )
-            : null;
-          let refs: ReadonlyArray<AgentSessionLiveRef> = [];
-          if (Exit.isSuccess(snapshotExit)) {
-            refs = snapshotExit.value;
-          } else if (releasedRefsExit && Exit.isSuccess(releasedRefsExit)) {
-            refs = releasedRefsExit.value;
-          }
-          yield* publishChanges(refs.map((ref) => ({ type: "session_removed" as const, ref })));
-          const needsAuthoritativeSnapshot =
-            Exit.isFailure(snapshotExit) && (!releasedRefsExit || Exit.isFailure(releasedRefsExit));
-          const authoritativeSnapshotExit = needsAuthoritativeSnapshot
-            ? yield* Effect.exit(
-                Effect.gen(function* () {
-                  const snapshots = yield* listSnapshots(adapter.binding.repoPath);
-                  yield* publishEnvelope({
-                    type: "snapshot",
-                    repoPath: adapter.binding.repoPath,
-                    sessions: [...snapshots],
-                  });
-                }),
-              )
-            : null;
-
-          const failures: string[] = [];
-          if (Exit.isFailure(settlementExit))
-            failures.push(`transcript settlement: ${Cause.pretty(settlementExit.cause)}`);
-          if (Exit.isFailure(snapshotExit)) {
-            failures.push(`live snapshots: ${Cause.pretty(snapshotExit.cause)}`);
-          }
-          if (Exit.isFailure(releaseExit)) {
-            failures.push(`adapter cleanup: ${Cause.pretty(releaseExit.cause)}`);
-          }
-          if (releasedRefsExit && Exit.isFailure(releasedRefsExit)) {
-            failures.push(`released refs: ${Cause.pretty(releasedRefsExit.cause)}`);
-          }
-          if (authoritativeSnapshotExit && Exit.isFailure(authoritativeSnapshotExit)) {
-            failures.push(
-              `authoritative snapshot: ${Cause.pretty(authoritativeSnapshotExit.cause)}`,
-            );
-          }
-          if (failures.length > 0) {
-            return yield* Effect.fail(
-              new HostOperationError({
-                operation: "agent-session-live.release-runtime",
-                message: failures.join("\n"),
-                details: { runtimeId },
-              }),
-            );
-          }
-          return refs;
-        }),
-      ),
-    runAdapterMutation: (mutation) =>
-      coordinator.run(
-        Effect.gen(function* () {
-          const result = yield* mutation;
-          yield* publishChanges(result.changes);
-          return result.value;
-        }),
-      ),
+        return acceptedMessage;
+      }),
+    updateSessionModel: (input) =>
+      runControl(input, (adapter) => adapter.updateSessionModel(input)),
+    stopSession: (input) => runControl(input, (adapter) => adapter.stopSession(input)),
+    releaseSession: (input) => runControl(input, (adapter) => adapter.releaseSession(input)),
+    registerRuntimeAdapter: lifecycle.registerRuntimeAdapter,
+    releaseRuntime: lifecycle.releaseRuntime,
+    createRuntimeRegistration: lifecycle.createRuntimeRegistration,
   };
 
   return service;

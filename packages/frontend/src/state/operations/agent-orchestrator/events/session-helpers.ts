@@ -63,16 +63,7 @@ export const settleSessionToIdle = (
     shouldClear = shouldClearTurnFromCurrentState(current);
     const imageSettled = recordImageGenerationEnd(current, timestamp, "turn_ended");
     const messages = settleDanglingTodoToolMessages(imageSettled, timestamp);
-    const status = current.status === "error" ? "error" : "idle";
-    const shouldClearPendingUserMessage =
-      status === "idle" && current.pendingUserMessageStartedAt !== undefined;
-    const shouldClearRuntimeStatusMessage = current.runtimeStatusMessage !== null;
-    const didChange =
-      imageSettled !== current ||
-      messages !== current.messages ||
-      current.status !== status ||
-      shouldClearPendingUserMessage ||
-      shouldClearRuntimeStatusMessage;
+    const didChange = imageSettled !== current || messages !== current.messages;
     if (!didChange) {
       return current;
     }
@@ -80,9 +71,6 @@ export const settleSessionToIdle = (
     return {
       ...imageSettled,
       messages,
-      status,
-      runtimeStatusMessage: null,
-      pendingUserMessageStartedAt: undefined,
     };
   });
   return shouldClear;

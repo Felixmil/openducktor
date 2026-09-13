@@ -23,6 +23,12 @@ import {
 export type AgentChatDraftSessionIdentity = AgentSessionIdentityLike & {
   workspaceId: string;
 };
+export type AgentChatDraftIdentity =
+  | AgentChatDraftSessionIdentity
+  | {
+      workspaceId: string;
+      workspaceSessionId: string;
+    };
 
 export type PersistedAgentChatDraftAttachment = {
   id: string;
@@ -53,7 +59,7 @@ export type SerializedAgentChatDraftResult =
   | { status: "serialized"; payload: string; byteLength: number };
 
 export type RestoredAgentChatDraft = {
-  taskId: string;
+  taskId: string | null;
   updatedAt: string;
   draft: AgentChatComposerDraft;
 };
@@ -66,6 +72,7 @@ export type AgentChatDraftStorageReadResult =
   | { status: "oversized"; byteLength: number };
 
 export const AGENT_CHAT_DRAFT_STORAGE_PREFIX = "openducktor:agent-chat:draft:v2";
+const WORKSPACE_CHAT_DRAFT_STORAGE_PREFIX = "openducktor:workspace-chat:draft:v1";
 export const AGENT_CHAT_DRAFT_STORAGE_MAX_BYTES = 20_480;
 export const AGENT_CHAT_DRAFT_STORAGE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -137,13 +144,27 @@ const persistedAgentChatDraftPayloadSchema = z.object({
   }),
 });
 
-export const toAgentChatDraftStorageKey = (identity: AgentChatDraftSessionIdentity): string =>
-  `${AGENT_CHAT_DRAFT_STORAGE_PREFIX}:${encodeURIComponent(
+const persistedWorkspaceChatDraftPayloadSchema = z.object({
+  version: z.literal(1),
+  workspaceId: nonEmptyStringSchema,
+  workspaceSessionId: nonEmptyStringSchema,
+  taskId: z.null(),
+  updatedAt: nonEmptyStringSchema,
+  draft: persistedAgentChatDraftPayloadSchema.shape.draft,
+});
+
+export const toAgentChatDraftStorageKey = (identity: AgentChatDraftIdentity): string => {
+  if ("workspaceSessionId" in identity) {
+    return `${WORKSPACE_CHAT_DRAFT_STORAGE_PREFIX}:${encodeURIComponent(identity.workspaceId)}:${encodeURIComponent(identity.workspaceSessionId)}`;
+  }
+  return `${AGENT_CHAT_DRAFT_STORAGE_PREFIX}:${encodeURIComponent(
     identity.workspaceId,
   )}:${agentSessionIdentityKey(identity)}`;
+};
 
 export const isAgentChatDraftStorageKey = (key: string): boolean =>
-  key.startsWith(`${AGENT_CHAT_DRAFT_STORAGE_PREFIX}:`);
+  key.startsWith(`${AGENT_CHAT_DRAFT_STORAGE_PREFIX}:`) ||
+  key.startsWith(`${WORKSPACE_CHAT_DRAFT_STORAGE_PREFIX}:`);
 
 export const measureAgentChatDraftPayloadBytes = (payload: string): number =>
   encoder.encode(payload).byteLength;
@@ -173,8 +194,8 @@ export const serializeAgentChatDraftPayload = ({
   draft,
   updatedAt,
 }: {
-  identity: AgentChatDraftSessionIdentity;
-  taskId: string;
+  identity: AgentChatDraftIdentity;
+  taskId: string | null;
   draft: AgentChatComposerDraft;
   updatedAt: string;
 }): SerializedAgentChatDraftResult => {
@@ -191,13 +212,24 @@ export const serializeAgentChatDraftPayload = ({
     attachments.push(persistedAttachment);
   }
 
-  const payload: PersistedAgentChatDraftPayload = {
-    version: 2,
-    workspaceId: identity.workspaceId,
-    externalSessionId: identity.externalSessionId,
-    runtimeKind: identity.runtimeKind,
-    workingDirectory: normalizeWorkingDirectory(identity.workingDirectory),
-    taskId,
+  const owner =
+    "workspaceSessionId" in identity
+      ? {
+          version: 1,
+          workspaceId: identity.workspaceId,
+          workspaceSessionId: identity.workspaceSessionId,
+          taskId: null,
+        }
+      : {
+          version: 2,
+          workspaceId: identity.workspaceId,
+          externalSessionId: identity.externalSessionId,
+          runtimeKind: identity.runtimeKind,
+          workingDirectory: normalizeWorkingDirectory(identity.workingDirectory),
+          taskId,
+        };
+  const payload = {
+    ...owner,
     updatedAt,
     draft: {
       segments: draft.segments,
@@ -233,7 +265,7 @@ export const parseAgentChatDraftPayload = ({
   now,
 }: {
   raw: string | null;
-  identity: AgentChatDraftSessionIdentity;
+  identity: AgentChatDraftIdentity;
   now: Date;
 }): AgentChatDraftStorageReadResult => {
   if (!raw) {
@@ -252,21 +284,29 @@ export const parseAgentChatDraftPayload = ({
     return { status: "invalid", reason: "Stored chat draft is not valid JSON." };
   }
 
-  const parsed = persistedAgentChatDraftPayloadSchema.safeParse(parsedJson);
+  const parsed = z
+    .union([persistedAgentChatDraftPayloadSchema, persistedWorkspaceChatDraftPayloadSchema])
+    .safeParse(parsedJson);
   if (!parsed.success) {
     return { status: "invalid", reason: "Stored chat draft body is invalid." };
   }
 
   const payload = parsed.data;
-  const parsedIdentity: AgentChatDraftSessionIdentity = {
-    workspaceId: payload.workspaceId,
-    externalSessionId: payload.externalSessionId,
-    runtimeKind: payload.runtimeKind,
-    workingDirectory: payload.workingDirectory,
-  };
+  const parsedIdentity: AgentChatDraftIdentity =
+    payload.version === 1
+      ? {
+          workspaceId: payload.workspaceId,
+          workspaceSessionId: payload.workspaceSessionId,
+        }
+      : {
+          workspaceId: payload.workspaceId,
+          externalSessionId: payload.externalSessionId,
+          runtimeKind: payload.runtimeKind,
+          workingDirectory: payload.workingDirectory,
+        };
   if (
     parsedIdentity.workspaceId !== identity.workspaceId ||
-    agentSessionIdentityKey(parsedIdentity) !== agentSessionIdentityKey(identity)
+    toAgentChatDraftStorageKey(parsedIdentity) !== toAgentChatDraftStorageKey(identity)
   ) {
     return { status: "invalid", reason: "Stored chat draft identity does not match the key." };
   }
@@ -330,7 +370,15 @@ const decodeDraftKeyPart = (value: string): string | null => {
   }
 };
 
-const parseDraftStorageKeyIdentity = (key: string): AgentChatDraftSessionIdentity | null => {
+const parseDraftStorageKeyIdentity = (key: string): AgentChatDraftIdentity | null => {
+  const workspacePrefix = `${WORKSPACE_CHAT_DRAFT_STORAGE_PREFIX}:`;
+  if (key.startsWith(workspacePrefix)) {
+    const parts = key.slice(workspacePrefix.length).split(":");
+    if (parts.length !== 2) return null;
+    const workspaceId = decodeDraftKeyPart(parts[0]!);
+    const workspaceSessionId = decodeDraftKeyPart(parts[1]!);
+    return workspaceId && workspaceSessionId ? { workspaceId, workspaceSessionId } : null;
+  }
   const keyPrefix = `${AGENT_CHAT_DRAFT_STORAGE_PREFIX}:`;
   if (!key.startsWith(keyPrefix)) {
     return null;
@@ -362,8 +410,8 @@ export const writeAgentChatDraftToStorage = ({
   updatedAt,
 }: {
   storage: Pick<Storage, "setItem" | "removeItem">;
-  identity: AgentChatDraftSessionIdentity;
-  taskId: string;
+  identity: AgentChatDraftIdentity;
+  taskId: string | null;
   draft: AgentChatComposerDraft;
   updatedAt: string;
 }): SerializedAgentChatDraftResult => {
@@ -389,7 +437,7 @@ export const readAgentChatDraftFromStorage = ({
   now = new Date(),
 }: {
   storage: Pick<Storage, "getItem" | "removeItem">;
-  identity: AgentChatDraftSessionIdentity;
+  identity: AgentChatDraftIdentity;
   now?: Date;
 }): AgentChatDraftStorageReadResult => {
   const key = toAgentChatDraftStorageKey(identity);
@@ -406,7 +454,7 @@ export const removeAgentChatDraftFromStorage = ({
   identity,
 }: {
   storage: Pick<Storage, "removeItem">;
-  identity: AgentChatDraftSessionIdentity;
+  identity: AgentChatDraftIdentity;
 }): void => {
   removeDraftStoragePayload(storage, toAgentChatDraftStorageKey(identity));
 };

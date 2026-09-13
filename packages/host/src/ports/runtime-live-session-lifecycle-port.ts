@@ -2,8 +2,9 @@ import type { AgentSessionLiveRef } from "@openducktor/contracts";
 import type { Effect } from "effect";
 import type { HostError } from "../effect/host-errors";
 import type {
-  AgentSessionLiveAdapterMutation,
+  AgentSessionLiveAdapterBinding,
   AgentSessionLiveAdapterPort,
+  AgentSessionLiveRegistration,
 } from "./agent-session-live-adapter-port";
 
 /** Runtime-starter boundary for registering and releasing ephemeral live projections. */
@@ -14,9 +15,9 @@ export type RuntimeLiveSessionLifecyclePort = {
   readonly releaseRuntime: (
     runtimeId: string,
   ) => Effect.Effect<ReadonlyArray<AgentSessionLiveRef>, HostError>;
-  readonly runAdapterMutation: <Success>(
-    mutation: Effect.Effect<AgentSessionLiveAdapterMutation<Success>, HostError>,
-  ) => Effect.Effect<Success, HostError>;
+  readonly createRuntimeRegistration: (
+    binding: AgentSessionLiveAdapterBinding,
+  ) => AgentSessionLiveRegistration;
 };
 
 export type PreparedRuntimeLiveSessionAdapter = {

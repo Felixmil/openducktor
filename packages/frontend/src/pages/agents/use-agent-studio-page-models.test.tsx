@@ -364,6 +364,7 @@ const createHookHarness = (initialProps: HookArgs) =>
             sessionReadModelLoadState: readyAgentSessionReadModelLoadState("/repo"),
             reloadSessionReadModel,
             getSessionFault: () => null,
+            workspaceSessionRecordsError: null,
           },
         },
         createElement(

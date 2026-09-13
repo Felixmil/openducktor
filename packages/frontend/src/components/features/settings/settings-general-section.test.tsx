@@ -14,11 +14,11 @@ const renderSection = (general: GeneralSettings, disabled = false): string =>
   );
 
 describe("settings general section", () => {
-  test("renders background Agent Studio tab setting copy", () => {
+  test("renders background Task workflows tab setting copy", () => {
     const html = renderSection({ openAgentStudioTabOnBackgroundSessionStart: true });
 
     expect(html).toContain("General Settings");
-    expect(html).toContain("Open Agent Studio tab for background sessions");
+    expect(html).toContain("Open Task workflows tab for background sessions");
     expect(html).toContain("without navigating away from Kanban");
   });
 

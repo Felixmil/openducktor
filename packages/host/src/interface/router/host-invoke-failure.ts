@@ -1,5 +1,6 @@
 import type { HostInvokeFailure } from "@openducktor/contracts";
 import { RuntimeQueryError } from "../../ports/runtime-query-error";
+import { AgentSessionMessageAcceptedError } from "../../ports/agent-session-send-error";
 import { WorkspaceTextFileWriteError } from "../../application/filesystem/workspace-text-file-service";
 import {
   TerminalServiceError,
@@ -7,10 +8,23 @@ import {
 } from "../../application/terminals/terminal-service";
 import { TaskAssetError, taskAssetErrorToFailure } from "../../effect/task-asset-error";
 import { CodexSessionHistoryError } from "../../ports/codex-session-history-error";
+import { HostValidationError } from "../../effect/host-errors";
 
 export const hostInvokeFailureFromError = (cause: unknown): HostInvokeFailure | undefined => {
   if (cause instanceof RuntimeQueryError) {
     return { kind: "runtime_query", runtimeQueryFailure: cause.failure };
+  }
+  if (cause instanceof AgentSessionMessageAcceptedError) {
+    return cause.failure;
+  }
+  if (cause instanceof HostValidationError && cause.field === "confirmStop") {
+    return { kind: "workspace_session_confirmation", field: cause.field };
+  }
+  if (
+    cause instanceof HostValidationError &&
+    (cause.field === "worktree.name" || cause.field === "worktree.branchName")
+  ) {
+    return { kind: "workspace_session_validation", field: cause.field };
   }
   if (cause instanceof WorkspaceTextFileWriteError) {
     return {

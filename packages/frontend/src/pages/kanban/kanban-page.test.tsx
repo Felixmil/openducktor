@@ -12,7 +12,7 @@ import {
 } from "@openducktor/contracts";
 import type { AgentModelCatalog } from "@openducktor/core";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { type RenderResult, render, waitFor } from "@testing-library/react";
+import { type RenderResult, fireEvent, render, waitFor } from "@testing-library/react";
 import { act, type ComponentProps, type ReactElement } from "react";
 import { MemoryRouter, useLocation } from "react-router";
 import { z } from "zod";
@@ -67,6 +67,7 @@ import {
   enableReactActEnvironment,
 } from "../agents/agent-studio-test-utils";
 import type { KanbanPageModels } from "./kanban-page-model-types";
+import { KanbanPageHeader } from "./kanban-page-header";
 import { KanbanColumn } from "@/components/features/kanban/kanban-column";
 import type { HumanReviewFeedbackModalModel } from "@/features/human-review-feedback/human-review-feedback-types";
 
@@ -620,6 +621,7 @@ const renderPage = async (
                                   readyAgentSessionReadModelLoadState("/repo"),
                                 reloadSessionReadModel: () => undefined,
                                 getSessionFault: () => null,
+                                workspaceSessionRecordsError: null,
                               }}
                             >
                               <RuntimeDefinitionsContext.Provider
@@ -898,13 +900,43 @@ describe("KanbanPage session start modal flow", () => {
         }),
       );
       expect(updateAgentSessionModelMock).not.toHaveBeenCalled();
-      expect(renderer.getLocation()).toBe("/agents?task=TASK-123&session=session-1&agent=build");
+      expect(renderer.getLocation()).toBe("/workflows?task=TASK-123&session=session-1&agent=build");
 
       await act(async () => {
         renderer.unmount();
       });
     },
   );
+
+  kanbanTest("uses the same New task label and icon as the sidebar", async () => {
+    const onCreateTask = mock(() => {});
+    const renderer = render(
+      <WorkspaceStateContext
+        value={createWorkspaceStateValue({ settingsSnapshot: currentSettingsSnapshotFixture })}
+      >
+        <ChecksStateContext value={createChecksStateValue()}>
+          <KanbanPageHeader
+            model={{
+              isLoadingTasks: false,
+              isSwitchingWorkspace: false,
+              onCreateTask,
+              onRefreshTasks: () => {},
+            }}
+          />
+        </ChecksStateContext>
+      </WorkspaceStateContext>,
+    );
+    try {
+      const newTask = renderer.getByRole("button", { name: "New task" });
+      expect(newTask.querySelectorAll("svg")).toHaveLength(1);
+      expect(newTask.querySelector("svg.lucide-plus")).not.toBeNull();
+      expect(renderer.queryByRole("button", { name: "Create Task" })).toBeNull();
+      fireEvent.click(newTask);
+      expect(onCreateTask).toHaveBeenCalledTimes(1);
+    } finally {
+      renderer.unmount();
+    }
+  });
 
   kanbanTest(
     "settings load failure reports an error without issuing a task-list request",
@@ -1151,7 +1183,7 @@ describe("KanbanPage session start modal flow", () => {
 
     expect(startAgentSessionMock).toHaveBeenCalledTimes(1);
     expect(sendAgentMessageMock).toHaveBeenCalledTimes(1);
-    expect(renderer.getLocation()).toBe("/agents?task=TASK-123&session=session-1&agent=build");
+    expect(renderer.getLocation()).toBe("/workflows?task=TASK-123&session=session-1&agent=build");
     expect(publishSessionErrorMock).toHaveBeenCalledWith(
       expect.objectContaining({
         taskId: "TASK-123",
@@ -1300,7 +1332,9 @@ describe("KanbanPage session start modal flow", () => {
 
       expect(renderer.getSessionStartModalModel()).toBeNull();
       expect(startAgentSessionMock).not.toHaveBeenCalled();
-      expect(renderer.getLocation()).toBe("/agents?task=TASK-123&session=session-spec&agent=spec");
+      expect(renderer.getLocation()).toBe(
+        "/workflows?task=TASK-123&session=session-spec&agent=spec",
+      );
 
       await act(async () => {
         renderer.unmount();
@@ -1665,7 +1699,7 @@ describe("KanbanPage session start modal flow", () => {
     expect(renderer.getSessionStartModalModel()).toBeNull();
     expect(startAgentSessionMock).not.toHaveBeenCalled();
     expect(renderer.getLocation()).toBe(
-      "/agents?task=TASK-123&session=session-build-older&agent=build",
+      "/workflows?task=TASK-123&session=session-build-older&agent=build",
     );
 
     await act(async () => {
@@ -1751,7 +1785,7 @@ describe("KanbanPage session start modal flow", () => {
           variant: "default",
         });
         await waitFor(() => {
-          expect(page.getLocation()).toBe("/agents?task=TASK-123&session=session-1&agent=build");
+          expect(page.getLocation()).toBe("/workflows?task=TASK-123&session=session-1&agent=build");
         });
         const sessionExternalId = new URL(
           page.getLocation(),
@@ -1793,7 +1827,7 @@ describe("KanbanPage session start modal flow", () => {
       expect(renderer.getSessionStartModalModel()).toBeNull();
       expect(startAgentSessionMock).not.toHaveBeenCalled();
       expect(renderer.getLocation()).toBe(
-        "/agents?task=TASK-123&session=session-build-older&agent=build",
+        "/workflows?task=TASK-123&session=session-build-older&agent=build",
       );
 
       await act(async () => {
@@ -1818,7 +1852,7 @@ describe("KanbanPage session start modal flow", () => {
       expect(renderer.getSessionStartModalModel()).toBeNull();
       expect(startAgentSessionMock).not.toHaveBeenCalled();
       expect(renderer.getLocation()).toBe(
-        "/agents?task=TASK-123&session=session-build-older&agent=build",
+        "/workflows?task=TASK-123&session=session-build-older&agent=build",
       );
 
       await act(async () => {
@@ -1839,7 +1873,7 @@ describe("KanbanPage session start modal flow", () => {
     });
 
     expect(renderer.getSessionStartModalModel()).toBeNull();
-    expect(renderer.getLocation()).toBe("/agents?task=TASK-123&agent=qa");
+    expect(renderer.getLocation()).toBe("/workflows?task=TASK-123&agent=qa");
 
     await act(async () => {
       renderer.unmount();
@@ -1920,7 +1954,7 @@ describe("KanbanPage session start modal flow", () => {
       expect(renderer.getSessionStartModalModel()).toBeNull();
       expect(startAgentSessionMock).not.toHaveBeenCalled();
       expect(renderer.getLocation()).toBe(
-        "/agents?task=TASK-123&session=session-build-older&agent=build",
+        "/workflows?task=TASK-123&session=session-build-older&agent=build",
       );
 
       await act(async () => {

@@ -20,15 +20,6 @@ import { handleToolPart } from "./session-tool-parts";
 
 type PrepareCurrent = (current: AgentSessionState) => AgentSessionState;
 
-const withRunningStatus = (session: AgentSessionState): AgentSessionState =>
-  session.status === "running" && session.pendingUserMessageStartedAt === undefined
-    ? session
-    : { ...session, status: "running", pendingUserMessageStartedAt: undefined };
-
-const markSessionRunning = (context: SessionPartEventContext): void => {
-  context.store.updateSession(context.session.identity, (current) => withRunningStatus(current));
-};
-
 const isInactiveSessionStatus = (status: AgentSessionState["status"]): boolean => {
   return status === "idle" || status === "stopped" || status === "error";
 };
@@ -144,15 +135,11 @@ export const handleAssistantDelta = (
       return;
     }
     const messageId = event.messageId;
-    markSessionRunning(context);
     context.store.updateSession(context.session.identity, (current) => {
       const existingMessage = findSessionMessageById(current, messageId);
       const baseContent = existingMessage?.role === "assistant" ? existingMessage.content : "";
       return upsertLiveAssistantMessage({
-        current: {
-          ...current,
-          status: "running",
-        },
+        current,
         model: resolvePartModelSelection(context, current, messageId),
         messageId,
         text: `${baseContent}${event.delta}`,
@@ -160,10 +147,6 @@ export const handleAssistantDelta = (
       });
     });
     return;
-  }
-
-  if (event.delta.length > 0) {
-    markSessionRunning(context);
   }
 };
 
@@ -179,16 +162,13 @@ const handleTextPart = (
   context.store.updateSession(context.session.identity, (current) => {
     const prepared = prepareCurrent(current);
     if (part.text.trim().length === 0) {
-      return withRunningStatus(prepared);
+      return prepared;
     }
 
     const sourceMessage = findSessionMessageById(prepared, part.messageId);
     const usesPartIdentity = prepared.runtimeKind === "claude";
     const input: UpsertLiveAssistantMessageInput = {
-      current: {
-        ...prepared,
-        status: "running",
-      },
+      current: prepared,
       model: resolvePartModelSelection(context, prepared, part.messageId),
       messageId: usesPartIdentity ? toTextMessageId(part.messageId, part.partId) : part.messageId,
       text: part.text,
@@ -212,7 +192,7 @@ const handleReasoningPart = (
   prepareCurrent: PrepareCurrent,
 ): void => {
   context.store.updateSession(context.session.identity, (current) => {
-    const prepared = withRunningStatus(prepareCurrent(current));
+    const prepared = prepareCurrent(current);
     if (!part.completed) {
       return prepared;
     }
@@ -318,12 +298,7 @@ export const handleAssistantPart = (
     context.turn.recordTurnActivityTimestamp(context.session.key, activityTimestamp);
   }
   const preparePart = createPrePartTodoSettlement(part, event.timestamp);
-  const prepareCurrent = recordsTurnActivity
-    ? (current: AgentSessionState): AgentSessionState => ({
-        ...preparePart(current),
-        pendingUserMessageStartedAt: undefined,
-      })
-    : preparePart;
+  const prepareCurrent = preparePart;
 
   switch (part.kind) {
     case "text":

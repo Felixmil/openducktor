@@ -1,6 +1,15 @@
 import { LoaderCircle, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { memo, type ReactElement, useCallback, useEffect, useRef, useState } from "react";
+import {
+  lazy,
+  memo,
+  type ReactElement,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router";
 import { DiagnosticsPanel } from "@/components/features/diagnostics";
 import { OpenRepositoryModal } from "@/components/features/repository/open-repository-modal";
@@ -21,6 +30,7 @@ import { repoConfigQueryOptions } from "@/state/queries/workspace";
 import { useShellAgentActivity } from "@/state/queries/use-shell-agent-activity";
 
 type AppShellSidebarPreference = "opened" | "collapsed";
+const WorkspaceCreateActions = lazy(() => import("./sidebar/workspace-create-actions"));
 
 const APP_SHELL_LEFT_SIDEBAR_STORAGE_KEY = "openducktor:app-shell:left-sidebar";
 const DEFAULT_APP_SHELL_SIDEBAR_PREFERENCE: AppShellSidebarPreference = "opened";
@@ -79,7 +89,10 @@ const WorkspaceAppShell = memo(function WorkspaceAppShell(): ReactElement {
   }
   const diagnosticsAutoOpenedByRepo = diagnosticsAutoOpenedByRepoRef.current;
   const hasActiveWorkspace = activeWorkspace !== null;
-  const agentActivity = useShellAgentActivity(activeWorkspace?.repoPath ?? null);
+  const agentActivity = useShellAgentActivity(
+    activeWorkspace?.repoPath ?? null,
+    activeWorkspace?.workspaceId ?? null,
+  );
 
   useEffect(() => {
     if (hasActiveWorkspace) {
@@ -165,6 +178,9 @@ const WorkspaceAppShell = memo(function WorkspaceAppShell(): ReactElement {
                   <DiagnosticsPanel autoOpenedByRepo={diagnosticsAutoOpenedByRepo} />
 
                   <SidebarNavigation hasActiveWorkspace={hasActiveWorkspace} />
+                  <Suspense fallback={null}>
+                    <WorkspaceCreateActions />
+                  </Suspense>
                   <AgentActivityCard
                     activeSessionCount={agentActivity.activeSessionCount}
                     waitingForInputCount={agentActivity.waitingForInputCount}
@@ -205,6 +221,9 @@ const WorkspaceAppShell = memo(function WorkspaceAppShell(): ReactElement {
                 </div>
                 <div className="w-full border-t border-sidebar-border pt-2">
                   <SidebarNavigation hasActiveWorkspace={hasActiveWorkspace} compact />
+                  <Suspense fallback={null}>
+                    <WorkspaceCreateActions compact />
+                  </Suspense>
                 </div>
                 <div className="mt-auto flex w-full justify-center border-t border-sidebar-border pt-2">
                   <SettingsModal

@@ -160,7 +160,7 @@ function SettingsModalDialog({
         </DialogHeader>
 
         <div className="min-h-0 flex-1 overflow-hidden">
-          <div className="grid h-full min-h-0 grid-cols-[220px_minmax(0,1fr)]">
+          <div className="grid h-full min-h-0 grid-cols-[220px_minmax(0,1fr)] grid-rows-1">
             <SettingsSidebar
               section={navigation.section}
               disabled={isInteractionDisabled}
@@ -174,6 +174,10 @@ function SettingsModalDialog({
                 globalPromptRoleTab={navigation.globalPromptRoleTab}
                 repoPromptRoleTab={navigation.repoPromptRoleTab}
                 selectedReusablePromptId={navigation.selectedReusablePromptId}
+                selectedCustomAgentRoleId={navigation.selectedCustomAgentRoleId}
+                onSelectedCustomAgentRoleIdChange={(selectedCustomAgentRoleId) =>
+                  setNavigation((current) => ({ ...current, selectedCustomAgentRoleId }))
+                }
                 isInteractionDisabled={isInteractionDisabled}
                 controller={controller}
                 onRepositorySectionChange={handleRepositorySectionChange}
@@ -197,6 +201,8 @@ function SettingsModalDialog({
               controller.isLoadingRuntimeDefinitions || controller.isLoadingRuntimeExecutables,
           }}
           validationSummary={{
+            customAgentRoleFieldErrorCount:
+              controller.customAgentRoleValidationState.totalErrorCount,
             promptPlaceholderErrorCount: controller.promptValidationState.totalErrorCount,
             reusablePromptFieldErrorCount: controller.reusablePromptValidationState.totalErrorCount,
             runtimeAvailabilityErrorCount:

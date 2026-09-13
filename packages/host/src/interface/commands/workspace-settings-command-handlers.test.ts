@@ -230,6 +230,7 @@ describe("createWorkspaceSettingsCommandHandlers", () => {
             calls.push("getSettingsSnapshot");
             return {
               system: {},
+              customAgentRoles: [],
               theme: "light",
               git: { defaultMergeMethod: "merge_commit" },
               general: { openAgentStudioTabOnBackgroundSessionStart: true },
@@ -281,6 +282,7 @@ describe("createWorkspaceSettingsCommandHandlers", () => {
             calls.push("updateAgentModelFavorites");
             return {
               system: {},
+              customAgentRoles: [],
               theme: "light",
               git: { defaultMergeMethod: "merge_commit" },
               general: { openAgentStudioTabOnBackgroundSessionStart: true },

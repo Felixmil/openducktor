@@ -9,23 +9,23 @@ It uses a workspace-scoped SQLite task store as the task source of truth, orches
 <details>
 <summary>More screenshots</summary>
 
-![Agent Studio placeholder](docs/assets/screenshots/agent-studio-builder.png)
+![Task workflows placeholder](docs/assets/screenshots/agent-studio-builder.png)
 
-![Agent Studio placeholder](docs/assets/screenshots/agent-studio-planner.png)
+![Task workflows placeholder](docs/assets/screenshots/agent-studio-planner.png)
 
-![Agent Studio placeholder](docs/assets/screenshots/agent-studio-spec-question.png)
+![Task workflows placeholder](docs/assets/screenshots/agent-studio-spec-question.png)
 
-![Agent Studio placeholder](docs/assets/screenshots/settings-repo-config.png)
+![Task workflows placeholder](docs/assets/screenshots/settings-repo-config.png)
 
-![Agent Studio placeholder](docs/assets/screenshots/settings-autopilot.png)
+![Task workflows placeholder](docs/assets/screenshots/settings-autopilot.png)
 
-![Agent Studio placeholder](docs/assets/screenshots/settings-customize-prompts.png)
+![Task workflows placeholder](docs/assets/screenshots/settings-customize-prompts.png)
 
-![Agent Studio placeholder](docs/assets/screenshots/settings-default-models.png)
+![Task workflows placeholder](docs/assets/screenshots/settings-default-models.png)
 
-![Agent Studio placeholder](docs/assets/screenshots/create-task-1.png)
+![Task workflows placeholder](docs/assets/screenshots/create-task-1.png)
 
-![Agent Studio placeholder](docs/assets/screenshots/create-task-2.png)
+![Task workflows placeholder](docs/assets/screenshots/create-task-2.png)
 
 </details>
 
@@ -78,7 +78,7 @@ Task data is stored in an OpenDucktor-managed SQLite database, so no external ta
 - Autopilot rules that can automatically start the next workflow action when task transitions are observed.
 - Task-linked documents for specifications, implementation plans, and QA reports.
 - A canonical Git worktree for each task, shared by fresh Specification, Planner, Builder, and QA sessions while the runtime process remains repository-scoped.
-- Runtime-aware Agent Studio support for OpenCode, Codex, and Claude Code, including model selection, history hydration, permissions/questions, and workflow-tool routing through the runtime descriptor model.
+- Runtime-aware task workflows for OpenCode, Codex, and Claude Code, including model selection, history loading, permissions, questions, and workflow-tool routing through the runtime descriptor model.
 - Global and repository-level prompt customization for adapting agent behavior to your workflow.
 - A built-in OpenDucktor MCP server used internally by managed agent sessions and available externally through `@openducktor/mcp`.
 - A local web runner available through `@openducktor/web` for running the shared frontend with the TypeScript host in a browser.

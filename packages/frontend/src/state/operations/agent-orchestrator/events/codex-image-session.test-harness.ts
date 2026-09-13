@@ -12,6 +12,7 @@ import {
   type CodexAppServerProtocolMessage,
 } from "@openducktor/contracts";
 import { getAgentSession } from "@/state/agent-session-collection";
+import { applyAgentSessionLiveDelta } from "../session-read-model/agent-session-live-projection";
 import { applyLoadedSessionHistory } from "../support/session-history-chat-messages";
 import { createSessionTurnState } from "../support/session-turn-state";
 import {
@@ -69,6 +70,10 @@ export const createCodexImageSessionHarness = async (runtimeIds = ["runtime-live
   let selectedRuntime = runtimeIds[0]!;
   const consume = (event: AgentSessionTranscriptEvent) => {
     events.push(event);
+    sessionsRef.current = applyAgentSessionLiveDelta({
+      current: sessionsRef.current,
+      envelope: { type: "transcript_event", event },
+    });
     consumer.handle(event);
   };
   const options = {

@@ -1,11 +1,12 @@
-import { Bot, Columns3 } from "lucide-react";
+import { Bot, Columns3, MessagesSquare } from "lucide-react";
 import { type MouseEvent, type ReactElement, useState } from "react";
 import { NavLink, useLocation } from "react-router";
 import { sidebarNavLinkClassName } from "./sidebar-navigation-styles";
 
 const NAV_ITEMS = [
   { to: "/kanban", icon: Columns3, label: "Kanban", requiresRepo: false },
-  { to: "/agents", icon: Bot, label: "Agents", requiresRepo: true },
+  { to: "/workflows", icon: Bot, label: "Workflows", requiresRepo: true },
+  { to: "/chats", icon: MessagesSquare, label: "Chats", requiresRepo: true },
 ] as const;
 
 type NavigationRoute = (typeof NAV_ITEMS)[number]["to"];

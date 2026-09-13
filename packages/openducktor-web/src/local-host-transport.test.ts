@@ -305,6 +305,50 @@ describe("createLocalHostClient", () => {
     });
   });
 
+  test("preserves acceptance through the local web transport and host client", async () => {
+    const { createLocalHostClient } = await loadLocalHostTransport();
+    const sessionRef = {
+      repoPath: "/repo",
+      runtimeKind: "codex" as const,
+      workingDirectory: "/repo",
+      externalSessionId: "native",
+    };
+    const failure = {
+      kind: "agent_session_message_accepted",
+      sessionRef,
+      acceptedMessage: {
+        type: "user_message",
+        externalSessionId: "native",
+        messageId: "message-1",
+        timestamp: "2026-09-12T10:00:00Z",
+        message: "Hello",
+        parts: [],
+        state: "read",
+      },
+      stage: "live_update",
+    };
+    globalThis.fetch = createFetchFixture(
+      mock(async (url: string | URL | Request) =>
+        url.toString().endsWith("/session")
+          ? new Response(JSON.stringify({ ok: true }), { status: 200 })
+          : new Response(
+              JSON.stringify({
+                error: "The runtime accepted the message, but the session update failed.",
+                failure,
+              }),
+              { status: 500 },
+            ),
+      ),
+    );
+    await expect(
+      createLocalHostClient().agentSessionControlSend({
+        ...sessionRef,
+        sessionScope: { kind: "repository" },
+        parts: [{ kind: "text", text: "Hello" }],
+      }),
+    ).rejects.toMatchObject({ name: "HostInvokeError", failure });
+  });
+
   test("preserves workspace write failures through the local web transport", async () => {
     const { createLocalHostClient } = await loadLocalHostTransport();
     globalThis.fetch = createFetchFixture(
@@ -379,6 +423,7 @@ describe("local host SSE subscriptions", () => {
       observeLocalHostAgentSessions,
       subscribeLocalHostDevServerEvents,
       subscribeLocalHostRunEvents,
+      subscribeLocalHostWorkspaceSessionUpdates,
     } = await loadLocalHostTransport();
     const fetchMock = mock(
       async (url: string | URL | Request) =>
@@ -390,9 +435,12 @@ describe("local host SSE subscriptions", () => {
     const runListener = mock(() => {});
     const devServerListener = mock(() => {});
     const liveSessionListener = mock(() => {});
+    const workspaceSessionListener = mock(() => {});
 
     const unsubscribeRun = await subscribeLocalHostRunEvents(runListener);
     const devServerSubscription = subscribeLocalHostDevServerEvents(devServerListener);
+    const workspaceSessionSubscription =
+      subscribeLocalHostWorkspaceSessionUpdates(workspaceSessionListener);
     const liveSessionObservation = observeLocalHostAgentSessions(
       { repoPath: "/repo" },
       liveSessionListener,
@@ -404,6 +452,7 @@ describe("local host SSE subscriptions", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     FakeEventSource.instances[0]?.emit("open", "");
     const { unsubscribe: unsubscribeDevServer } = await devServerSubscription;
+    const unsubscribeWorkspaceSession = await workspaceSessionSubscription;
     const stopObservingLiveSessions = await liveSessionObservation;
 
     const emitHostEvent = (channel: string, payload: JSONType): void => {
@@ -415,6 +464,24 @@ describe("local host SSE subscriptions", () => {
       );
     };
     emitHostEvent("openducktor://run-event", { type: "run" });
+    const workspaceSessionUpdate = {
+      workspaceId: "workspace-A",
+      session: {
+        id: "session-1",
+        runtimeKind: "codex",
+        externalSessionId: "native-1",
+        executionTarget: { kind: "local_repo_root", workingDirectory: "/repo" },
+        roleSnapshot: null,
+        selectedModel: null,
+        generatedTitle: null,
+        manualTitle: "Example",
+        createdAt: 1000,
+        updatedAt: 1000,
+        archivedAt: null,
+      },
+    };
+    emitHostEvent("openducktor://workspace-session-updated", workspaceSessionUpdate);
+    expect(workspaceSessionListener).toHaveBeenCalledWith(workspaceSessionUpdate);
     emitHostEvent("openducktor://dev-server-event", {
       type: "snapshot",
       state: {
@@ -455,6 +522,7 @@ describe("local host SSE subscriptions", () => {
 
     unsubscribeRun();
     unsubscribeDevServer();
+    unsubscribeWorkspaceSession();
     expect(FakeEventSource.instances[0]?.closed).toBe(false);
 
     stopObservingLiveSessions();

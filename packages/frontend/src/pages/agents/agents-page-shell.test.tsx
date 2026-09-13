@@ -90,7 +90,7 @@ describe("AgentsPageShell", () => {
       }),
     );
 
-    expect(html).toContain("Agent Studio couldn&#x27;t load chat settings.");
+    expect(html).toContain("Task workflows couldn&#x27;t load chat settings.");
     expect(html).toContain("settings read failed");
     expect(html).toContain("Retry load");
     expect(html).toContain("workspace");
@@ -113,7 +113,7 @@ describe("AgentsPageShell", () => {
       }),
     );
 
-    expect(html).toContain("Agent Studio couldn&#x27;t load Git provider features.");
+    expect(html).toContain("Task workflows couldn&#x27;t load Git provider features.");
     expect(html).toContain("provider context read failed");
     expect(html).toContain("Retry provider load");
     expect(html).toContain("workspace");

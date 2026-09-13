@@ -15,16 +15,20 @@ The local codebase where OpenDucktor reads tasks and coordinates agent work. A *
 _Avoid_: workspace, project, folder when the user-facing codebase is meant
 
 **Workspace**:
-A boundary term for external or technical identity where OpenDucktor must name a scoped execution context, such as MCP workspace identity or runtime workflow scope. Do not use **Workspace** as the user-facing word for a local codebase; use **Repository** for that.
-_Avoid_: repository, project, folder when the local codebase is meant
+An OpenDucktor-owned scope attached to one **Repository**. A **Workspace** has its own identity, settings, task data, and **Workspace Sessions**. Use **Repository** for the codebase itself.
+_Avoid_: repository, project, folder
 
 **Task Store**:
 The workspace-scoped SQLite source of truth through which OpenDucktor reads and writes **Tasks**, **Task Statuses**, and **Task Metadata**. Use **Task Store** in developer and agent discussions about building OpenDucktor, not as UI wording.
 _Avoid_: task cache, issue mirror, user-facing label
 
-**Agent Studio**:
-The OpenDucktor surface for starting, resuming, and inspecting **Agent Sessions**. For now, **Agent Studio** includes **Task-bound Sessions** and is expected to include **Repository Sessions**, though this product boundary may split later.
-_Avoid_: chat page, assistant UI, **Task Workflow** only
+**Task Workflows Page**:
+The OpenDucktor page for starting, resuming, and inspecting **Task-bound Sessions** in their **Task Workflow** context. **Workspace Sessions** live on the separate **Chats Page**.
+_Avoid_: Agent Studio, Agents page, chat page
+
+**Chats Page**:
+The OpenDucktor page for creating, resuming, and inspecting **Workspace Sessions**. **Task-bound Sessions** live on the separate **Task Workflows Page**.
+_Avoid_: Workspace Sessions page, repository sessions page, Agent Studio
 
 **Kanban**:
 The OpenDucktor page that presents **Tasks** as a kanban board.
@@ -73,12 +77,20 @@ OpenDucktor behavior that starts the next **Workflow Action** automatically when
 _Avoid_: scheduler, automation engine
 
 **Agent Role**:
-The role assigned to an **Agent Session**. Current **Agent Roles** are **Spec Agent**, **Planner Agent**, **Builder Agent**, and **QA Agent**; all current **Agent Roles** are **Workflow Roles**. Future **Agent Roles** may work outside the **Task Workflow**.
-_Avoid_: persona, assistant mode, runtime role
+An OpenDucktor-owned session persona whose behavior is defined by one **System Prompt** used when OpenDucktor creates an **Agent Session**. An **Agent Role** is either a built-in **Workflow Role** or a user-defined **Custom Agent Role**.
+_Avoid_: Runtime Profile, assistant mode, runtime role
 
 **Workflow Role**:
-An **Agent Role** that participates in the **Task Workflow**. The current **Workflow Roles** are **Spec Agent**, **Planner Agent**, **Builder Agent**, and **QA Agent**.
+An OpenDucktor-built **Agent Role** available only within the **Task Workflow**. The current **Workflow Roles** are **Spec Agent**, **Planner Agent**, **Builder Agent**, and **QA Agent**. A **Workspace Session** cannot use a **Workflow Role**.
 _Avoid_: persona, agent type, assistant mode, Specification, Planner, Builder, QA when naming the role itself
+
+**Custom Agent Role**:
+A user-defined, global **Agent Role** with a stable identity, a unique name, and one **System Prompt**. Users manage **Custom Agent Roles** in Settings and may change their names and prompts for future sessions. A **Workspace Session** may select one **Custom Agent Role** or no **Agent Role** when it is created. A **Task Workflow** cannot use a **Custom Agent Role**.
+_Avoid_: custom Workflow Role, Runtime Profile, repository profile
+
+**Workspace Session Role Snapshot**:
+The immutable copy of the **Custom Agent Role** identity, name, and **System Prompt** selected when OpenDucktor creates a **Workspace Session**. Runtime calls use this snapshot even if a user later changes or deletes the **Custom Agent Role**. A **Workspace Session** without an **Agent Role** has no Role snapshot.
+_Avoid_: live Role reference, Runtime Profile, composed runtime prompt
 
 **Spec Agent**:
 The **Workflow Role** that clarifies what a **Task** means and produces or revises the **Spec Document**.
@@ -151,16 +163,28 @@ _Avoid_: QA Review when the state is meant, automated done, completed by agent
 ### Agent Work
 
 **Agent Session**:
-A runtime conversation bound to a **Repository** and run by a **Runtime Instance**. An **Agent Session** may be a **Task-bound Session** or a **Repository Session**, and it is distinct from the **Runtime Instance** that runs it.
+A runtime conversation bound to a **Repository** and run by a **Runtime Instance**. An **Agent Session** may be a **Task-bound Session** or a **Workspace Session**, and it is distinct from the **Runtime Instance** that runs it.
 _Avoid_: runtime, chat, thread
 
 **Task-bound Session**:
 An **Agent Session** that belongs to exactly one **Task** and, when it participates in the **Task Workflow**, one **Workflow Role**. Current **Spec Agent**, **Planner Agent**, **Builder Agent**, and **QA Agent** sessions are **Task-bound Sessions**.
 _Avoid_: task session, workflow run
 
-**Repository Session**:
-An **Agent Session** scoped to a **Repository** rather than a specific **Task**. **Repository Sessions** support, or are planned to support, work such as research, brainstorming, and exploration that may later inform tasks.
-_Avoid_: global chat, loose session, untracked session
+**Workspace Session**:
+An **Agent Session** owned by a **Workspace** rather than a specific **Task**. A **Workspace Session** may select one optional **Custom Agent Role** when it is created. Its **Workspace Session Role Snapshot** and **Execution Target** cannot change. A Role does not make the session part of the **Task Workflow**.
+_Avoid_: Repository Session, global chat, loose session, untracked session
+
+**Workspace Session Title**:
+The display name of a **Workspace Session**. OpenDucktor stores a title generated from the first user prompt and an optional user-set title. The user-set title takes priority when present.
+_Avoid_: runtime title, Task title, Role name
+
+**Archived Workspace Session**:
+A **Workspace Session** that a user manually archives while retaining its durable record, runtime-owned session, and **Execution Target**, with running activity stopped first. Users must explicitly restore it before opening its conversation or sending a message.
+_Avoid_: deleted session, stopped session, removed runtime session
+
+**Execution Target**:
+The immutable value that tells OpenDucktor where a **Workspace Session** executes. The first supported targets are the local **Repository** root and an OpenDucktor-created local Git worktree. Runtime adapters still receive the concrete working directory resolved from this value.
+_Avoid_: Runtime, Runtime Profile, working directory alone, deployment target
 
 **Transcript**:
 The visible ordered history of an **Agent Session** in OpenDucktor. A **Transcript** is runtime-neutral presentation of session messages, **Tool Calls**, questions, permissions, and status events.
@@ -194,6 +218,10 @@ _Avoid_: Session Status, Task Status, Runtime Capabilities
 The selected AI model used by a **Runtime** for an **Agent Session**. A **Model** is not the same thing as a **Runtime**.
 _Avoid_: runtime, provider
 
+**Runtime Profile**:
+A runtime-owned persona or preset selected as part of **Model Selection**. A **Runtime** may combine its **Runtime Profile** system prompt with the OpenDucktor-owned **Agent Role** system prompt when it creates an **Agent Session**.
+_Avoid_: Agent Role, Workflow Role, OpenDucktor role
+
 **Start Mode**:
 The way an **Agent Session** begins: fresh, reused, or forked. A **Start Mode** describes session continuity, not **Workflow Role**.
 _Avoid_: launch type, session kind
@@ -226,7 +254,7 @@ _Avoid_: comment, feedback, prompt
 The state of an **Agent Session** when it needs a user answer to a **Structured Question** or a user decision on a **Permission Prompt** before the current session interaction can continue. **Waiting for Input** is session state, not a **Task Status**.
 _Avoid_: Blocked, task blocked, paused task
 
-### Agent Studio And Chat
+### Task Workflows And Chat
 
 **Session Status**:
 The OpenDucktor interaction state of an **Agent Session**. **Session Status** is separate from **Task Status** and should not be treated as runtime liveness by itself.
@@ -257,7 +285,7 @@ The history of **Agent Sessions** that belong to a specific **Task**, used to in
 _Avoid_: Transcript, runtime history, browser history
 
 **Task Session Records Query**:
-The frontend read boundary for **Task Session History**. Agent Studio, Kanban, task details, and autopilot should use this query instead of reading session history from task-card summaries.
+The frontend read boundary for **Task Session History**. The **Task Workflows Page**, Kanban, task details, and autopilot should use this query instead of reading session history from task-card summaries.
 _Avoid_: TaskCard session source, duplicated session history state
 
 **Repo Session Read Model**:
@@ -289,11 +317,11 @@ The host-owned live-state snapshot for **Agent Sessions** that OpenDucktor has r
 _Avoid_: runtime session discovery, Session Status source, polling, reconciliation store
 
 **Agent Chat**:
-The OpenDucktor surface that displays a **Transcript** and, when interaction is allowed, a **Chat Composer**. **Agent Chat** can appear inside or outside Agent Studio; it is not a separate **Agent Session**.
-_Avoid_: Agent Session, Runtime, Transcript only, Agent Studio only
+The OpenDucktor surface that displays a **Transcript** and, when interaction is allowed, a **Chat Composer**. **Agent Chat** can appear inside or outside the **Task Workflows Page**; it is not a separate **Agent Session**.
+_Avoid_: Agent Session, Runtime, Transcript only, Task Workflows Page only
 
 **Read-only Session View**:
-An Agent Studio view that displays an **Agent Session** transcript without a **Chat Composer**. A **Read-only Session View** is used anywhere OpenDucktor needs transcript inspection without interaction.
+A view on the **Task Workflows Page** that displays an **Agent Session** transcript without a **Chat Composer**. A **Read-only Session View** is used anywhere OpenDucktor needs transcript inspection without interaction.
 _Avoid_: Transcript Session, Primary Session, read-only Agent Session
 
 **Chat Composer**:
@@ -313,7 +341,7 @@ A message produced by the **Runtime** during an **Agent Session**. An **Assistan
 _Avoid_: QA Report, Task Document, Tool Call
 
 **Reasoning Message**:
-A **Transcript** message or message part that displays model reasoning or thinking content when the **Runtime** exposes it. Users can choose whether **Reasoning Messages** are shown or hidden in Agent Studio.
+A **Transcript** message or message part that displays model reasoning or thinking content when the **Runtime** exposes it. Users can choose whether **Reasoning Messages** are shown or hidden on the **Task Workflows Page**.
 _Avoid_: Assistant Message, Tool Call, QA Report
 
 **System Prompt**:
@@ -405,7 +433,7 @@ The **Transcript** entry that summarizes **Subagent** activity, status, prompt, 
 _Avoid_: Assistant Message, Tool Call
 
 **Subagent Pending Input**:
-**Pending Input** that belongs to a child **Subagent** session but is surfaced on the parent **Agent Session** so the user can answer it from the main Agent Studio context.
+**Pending Input** that belongs to a child **Subagent** session but is surfaced on the parent **Agent Session** so the user can answer it from the main **Task Workflows Page** context.
 _Avoid_: parent Pending Input, Blocked, Task Status
 
 **Compaction**:
@@ -437,11 +465,11 @@ _Avoid_: Human Approval, Task Completion Path, PR text
 ### Build Tools And Git
 
 **Build Tools**:
-The Agent Studio area for inspecting and operating on implementation context, including **Git Panel**, **Dev Server**, and **Open In**. **Build Tools** are usually tied to a **Build Worktree**.
+The **Task Workflows Page** area for inspecting and operating on implementation context, including **Git Panel**, **Dev Server**, and **Open In**. **Build Tools** are usually tied to a **Build Worktree**.
 _Avoid_: Builder Agent, Workflow MCP Tool, Runtime
 
 **Git Panel**:
-The Agent Studio build-tools surface for branch, diff, file status, conflict, reset, commit, rebase, pull, push, and **Open In** actions. **Git Panel** can operate in repository context or worktree context.
+The build-tools surface on the **Task Workflows Page** for branch, diff, file status, conflict, reset, commit, rebase, pull, push, and **Open In** actions. **Git Panel** can operate in repository context or worktree context.
 _Avoid_: Git provider, Pull Request, Task Completion Path
 
 **Current Branch**:
@@ -513,7 +541,7 @@ A user comment attached directly to a **File Diff** in the **Git Panel**. **Inli
 _Avoid_: Change Request, QA Report, Chat Composer message
 
 **Open In**:
-The Agent Studio action that opens the current repository or **Build Worktree** in an external tool such as a terminal, editor, or file manager.
+The **Task Workflows Page** action that opens the current repository or **Build Worktree** in an external tool such as a terminal, editor, or file manager.
 _Avoid_: Runtime, Tool Call, File Reference
 
 **Dev Server**:
@@ -549,7 +577,7 @@ _Avoid_: tool entry
 ## Flagged Ambiguities
 
 **Session vs Runtime Instance**:
-Use **Agent Session** for a runtime conversation. Use **Task-bound Session** when the session belongs to one **Task**, and **Repository Session** when it is scoped to the **Repository**. Use **Runtime Instance** for the live local runtime process that can run sessions.
+Use **Agent Session** for a runtime conversation. Use **Task-bound Session** when the session belongs to one **Task**, and **Workspace Session** when the session belongs to a **Workspace** without belonging to a **Task**. Use **Runtime Instance** for the live local runtime process that can run sessions.
 
 **Agent Session vs Thread**:
 Use **Agent Session** in OpenDucktor product language. **Thread** is runtime/provider-specific language and should appear only when discussing a runtime-native conversation or history object.
@@ -583,7 +611,7 @@ Use **Runtime Capabilities** for what the integrated agent system supports acros
 Use **Runtime** when talking about OpenCode, Codex, or another agent system OpenDucktor can run sessions on. **Runtime Adapter** is hexagonal architecture language for implementation code and does not belong in product workflow language.
 
 **Repository vs Workspace**:
-Use **Repository** for the local codebase a user opens and works on. Use **Workspace** only for technical boundary language where an external protocol or runtime scope already uses that word.
+Use **Repository** for the local codebase. Use **Workspace** for the OpenDucktor-owned scope attached to that codebase, including its settings, task data, and **Workspace Sessions**.
 
 **Task vs Issue**:
 Use **Task** for the unit of work. Use **Issue Type** only for the task classification and keep **issue** otherwise limited to existing technical names that already contain it. The `task` **Issue Type** value is a classification, not a different concept from **Task**.
@@ -622,7 +650,7 @@ Use **File Reference** for repository files or directories mentioned as prompt c
 Use **File Reference** in the **Chat Composer**. Use **File Diff** in the **Git Panel**.
 
 **Agent Role vs Workflow Role**:
-Use **Agent Role** for any role an **Agent Session** can have. Use **Workflow Role** for the **Agent Roles** that participate in the **Task Workflow**.
+Use **Agent Role** for any OpenDucktor-owned session persona. Use **Workflow Role** when an **Agent Role** participates in the **Task Workflow**.
 
 **Subagent vs Agent Role**:
 Use **Subagent** for runtime-supported child activity inside a parent **Agent Session**. Use **Agent Role** or **Workflow Role** for OpenDucktor-assigned session roles such as **Builder Agent** or **QA Agent**.
@@ -652,7 +680,7 @@ Avoid standalone **Build** as a domain noun because it can mean a software build
 Use **Task Completion Path** for the OpenDucktor route after **Human Approval**, such as **Pull Request** or **Direct Merge**. Use **Git Merge Method** for the internal Git operation used by **Direct Merge**: `merge_commit`, `squash`, or `rebase`.
 
 **Git Panel vs Build Tools**:
-Use **Build Tools** for the Agent Studio area that groups implementation inspection and operations. Use **Git Panel** for the git-specific surface inside **Build Tools**.
+Use **Build Tools** for the **Task Workflows Page** area that groups implementation inspection and operations. Use **Git Panel** for the git-specific surface inside **Build Tools**.
 
 **Target Diff vs Uncommitted Diff**:
 Use **Target Diff** for comparison against the **Target Branch**. Use **Uncommitted Diff** for local working-tree changes.
@@ -661,7 +689,7 @@ Use **Target Diff** for comparison against the **Target Branch**. Use **Uncommit
 Use **Git Conflict** for a git operation conflict. Use **QA Rejection** for a rejected **QA Verdict** from **QA Review**.
 
 **Open In vs Tool Call**:
-Use **Open In** for the Agent Studio action that opens a repository or **Build Worktree** in an external application. Use **Tool Call** for a runtime tool invocation inside an **Agent Session**.
+Use **Open In** for the **Task Workflows Page** action that opens a repository or **Build Worktree** in an external application. Use **Tool Call** for a runtime tool invocation inside an **Agent Session**.
 
 **AI Review vs QA Review**:
 Use **AI Review** for the persisted **Task Status**. Use **QA Review** for the activity performed by the **QA Agent**.

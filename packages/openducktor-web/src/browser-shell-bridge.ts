@@ -23,6 +23,7 @@ import {
   subscribeLocalHostDevServerEvents,
   subscribeLocalHostRunEvents,
   subscribeLocalHostTaskStream,
+  subscribeLocalHostWorkspaceSessionUpdates,
 } from "./local-host-transport";
 import { createBrowserTerminalBridge } from "./terminals/browser-terminal-transport";
 import { createBrowserNotificationBridge } from "./browser-notification-bridge";
@@ -77,6 +78,7 @@ export const createBrowserShellBridge = (): ShellBridge => {
 
   return {
     client,
+    subscribeWorkspaceSessionUpdates: subscribeLocalHostWorkspaceSessionUpdates,
     appUpdates: createDisabledAppUpdateBridge({
       status: "disabled",
       currentVersion,

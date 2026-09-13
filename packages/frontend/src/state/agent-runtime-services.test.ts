@@ -1,7 +1,11 @@
 import { describe, expect, mock, test } from "bun:test";
 import { createHostClient } from "@openducktor/host-client";
 import type { AcceptedAgentUserMessage, AgentSessionSummary } from "@openducktor/core";
-import { createAgentRuntimeServices } from "./agent-runtime-services";
+import {
+  createAgentRuntimeServices,
+  getAcceptedMessageAfterSendFailure,
+} from "./agent-runtime-services";
+import { HostInvokeError } from "@openducktor/host-client";
 import { host } from "./operations/shared/host";
 
 const sessionSummary: AgentSessionSummary = {
@@ -24,6 +28,37 @@ const acceptedUserMessage: AcceptedAgentUserMessage = {
 };
 
 describe("agent runtime services", () => {
+  test("acceptance failure conversion requires the exact session reference", () => {
+    const ref = {
+      repoPath: "/repo",
+      runtimeKind: "opencode" as const,
+      workingDirectory: "/repo/worktree",
+      externalSessionId: sessionSummary.externalSessionId,
+    };
+    const error = new HostInvokeError("Accepted but not saved", {
+      kind: "agent_session_message_accepted",
+      sessionRef: ref,
+      stage: "record_message",
+      acceptedMessage: {
+        ...acceptedUserMessage,
+        model: { providerId: "p", modelId: "m", profileId: "profile", variant: undefined },
+      },
+    });
+    expect(getAcceptedMessageAfterSendFailure(error, ref)?.model).toEqual({
+      providerId: "p",
+      modelId: "m",
+      profileId: "profile",
+    });
+    for (const changed of [
+      { repoPath: "/other" },
+      { workingDirectory: "/other" },
+      { externalSessionId: "other" },
+      { runtimeKind: "codex" as const },
+    ]) {
+      expect(getAcceptedMessageAfterSendFailure(error, { ...ref, ...changed })).toBeNull();
+    }
+    expect(getAcceptedMessageAfterSendFailure(new HostInvokeError("Rejected"), ref)).toBeNull();
+  });
   test("exposes the shipped runtime definitions through the engine boundary", () => {
     const { agentEngine } = createAgentRuntimeServices();
 

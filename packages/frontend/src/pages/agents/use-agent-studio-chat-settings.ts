@@ -11,7 +11,7 @@ const readReusablePrompts = (snapshot: SettingsSnapshot): ReusablePrompt[] =>
 
 const createChatSettingsLoadError = (workspaceRepoPath: string, cause: unknown): Error => {
   return new Error(
-    `Failed to load Agent Studio chat settings for "${workspaceRepoPath}": ${errorMessage(cause)}`,
+    `Failed to load Task workflows chat settings for "${workspaceRepoPath}": ${errorMessage(cause)}`,
     { cause },
   );
 };

@@ -57,7 +57,6 @@ import {
   handleSessionError,
   handleSessionFinished,
   handleSessionIdle,
-  handleSessionStarted,
   handleSessionStatus,
   handleSessionTodosUpdated,
   handleTranscriptRetracted,
@@ -65,6 +64,7 @@ import {
   handleUserMessage,
 } from "./session-lifecycle";
 import { handleAssistantDelta, handleAssistantPart } from "./session-parts";
+import { projectSessionTranscriptActivity } from "../session-read-model/agent-session-live-activity";
 
 const SESSION_EVENT_BATCH_WINDOW_MS = 0;
 
@@ -78,9 +78,14 @@ const handleMcpReconnectStarted = (
 };
 
 const handleSessionEvent = (context: SessionEventContext, event: SessionEvent): void => {
+  context.store.updateSession(context.session.identity, (current) =>
+    projectSessionTranscriptActivity(current, {
+      ...event,
+      sessionRef: { ...context.session.identity, repoPath: context.session.repoPath },
+    }),
+  );
   switch (event.type) {
     case "session_started":
-      handleSessionStarted(context, event);
       return;
     case "assistant_delta":
       handleAssistantDelta(context, event);

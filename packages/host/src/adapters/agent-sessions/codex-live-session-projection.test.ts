@@ -1,3 +1,4 @@
+import { AgentSessionLiveRegistration } from "../../ports/agent-session-live-adapter-port";
 import { expect, spyOn, test } from "bun:test";
 import type { AgentSessionLiveSnapshot } from "@openducktor/contracts";
 import { Effect } from "effect";
@@ -17,7 +18,10 @@ test("empty deltas retain idle sessions and only explicit removals delete them",
   const projection = createCodexLiveSessionProjection({
     runtime: { runtimeId: "runtime", repoPath: "/repo", workingDirectory: "/repo" },
     liveSessionLifecycle: {
-      runAdapterMutation: (mutation) => mutation.pipe(Effect.map((result) => result.value)),
+      createRuntimeRegistration: (binding) =>
+        new AgentSessionLiveRegistration(binding, (mutation) =>
+          mutation.pipe(Effect.map((result) => result.value)),
+        ),
     },
   });
   const base = { runtimeId: "runtime", transcriptEvents: [], catalogInvalidated: false };
@@ -46,7 +50,10 @@ test("invalid removal refs reject the whole delta before any state changes", asy
   const projection = createCodexLiveSessionProjection({
     runtime: { runtimeId: "runtime", repoPath: "/repo", workingDirectory: "/repo" },
     liveSessionLifecycle: {
-      runAdapterMutation: (mutation) => mutation.pipe(Effect.map((result) => result.value)),
+      createRuntimeRegistration: (binding) =>
+        new AgentSessionLiveRegistration(binding, (mutation) =>
+          mutation.pipe(Effect.map((result) => result.value)),
+        ),
     },
   });
   const base = { runtimeId: "runtime", transcriptEvents: [], catalogInvalidated: false };
@@ -77,16 +84,18 @@ test("text deltas preserve transcript order with zero snapshot equality serializ
   const projection = createCodexLiveSessionProjection({
     runtime: { runtimeId: "runtime", repoPath: "/repo", workingDirectory: "/repo" },
     liveSessionLifecycle: {
-      runAdapterMutation: (mutation) =>
-        mutation.pipe(
-          Effect.map((result) => {
-            for (const change of result.changes) {
-              if (change.type === "transcript_event" && change.event.type === "assistant_delta") {
-                transcript.push(change.event.delta);
+      createRuntimeRegistration: (binding) =>
+        new AgentSessionLiveRegistration(binding, (mutation) =>
+          mutation.pipe(
+            Effect.map((result) => {
+              for (const change of result.changes) {
+                if (change.type === "transcript_event" && change.event.type === "assistant_delta") {
+                  transcript.push(change.event.delta);
+                }
               }
-            }
-            return result.value;
-          }),
+              return result.value;
+            }),
+          ),
         ),
     },
   });

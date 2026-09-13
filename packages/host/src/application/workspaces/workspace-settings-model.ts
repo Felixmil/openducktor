@@ -1,5 +1,7 @@
 import {
   type AgentModelFavorite,
+  type CustomAgentRole,
+  type CustomAgentRoleInput,
   DEFAULT_BRANCH_PREFIX,
   type GlobalGitConfig,
   globalConfigSchema,
@@ -41,6 +43,15 @@ export type WorkspaceSettingsError =
   | SettingsConfigError;
 
 export type WorkspaceSettingsService = {
+  listCustomAgentRoles(): Effect.Effect<CustomAgentRole[], WorkspaceSettingsError>;
+  createCustomAgentRole(
+    input: CustomAgentRoleInput,
+  ): Effect.Effect<CustomAgentRole, WorkspaceSettingsError>;
+  updateCustomAgentRole(
+    id: string,
+    input: CustomAgentRoleInput,
+  ): Effect.Effect<CustomAgentRole, WorkspaceSettingsError>;
+  deleteCustomAgentRole(id: string): Effect.Effect<void, WorkspaceSettingsError>;
   listWorkspaces(): Effect.Effect<WorkspaceRecord[], WorkspaceSettingsError>;
   addWorkspace(input: WorkspaceAddInput): Effect.Effect<WorkspaceRecord, WorkspaceSettingsError>;
   selectWorkspace(workspaceId: string): Effect.Effect<WorkspaceRecord, WorkspaceSettingsError>;
@@ -194,6 +205,7 @@ export const workspaceRecordsInEffectiveOrder = (
   });
 export const toSettingsSnapshot = (config: LoadedGlobalConfig): SettingsSnapshot =>
   settingsSnapshotSchema.parse({
+    customAgentRoles: config.customAgentRoles,
     theme: config.theme,
     system: config.system,
     git: config.git,

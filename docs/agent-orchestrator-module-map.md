@@ -1,8 +1,8 @@
 # Agent orchestrator module map
 
-Use this map before you change `packages/frontend/src/state/operations/agent-orchestrator` or an Agent Studio session flow.
+Use this map before you change `packages/frontend/src/state/operations/agent-orchestrator` or a Task Workflows session flow.
 
-The host owns live session truth. The task store owns durable workflow session records. The renderer holds one projection of those sources. History loads only for the selected session.
+The host owns live session truth for task and workspace sessions. SQLite owns their durable records. The renderer holds one projection of those sources. History loads only for the selected session.
 
 Pass primitive identity through these modules. Use `workspaceRepoPath` for repository session state. Pass `workspaceId` only to code that reads repository config or starts a runtime. Do not pass `ActiveWorkspace` into transcript, action, or read-model modules.
 
@@ -37,18 +37,55 @@ Owns durable record reads, root admission from durable records or explicit start
 Rules:
 
 - Attach the host listener before `agentSessionLiveRefresh`.
-- A live snapshot cannot create a root. A root enters through an OpenDucktor start registration or a durable task session record.
+- A live snapshot cannot create a root. A root enters through an OpenDucktor start registration or a durable task or workspace session record.
 - A live event can add a descendant only when its parent already exists in the collection.
-- On reload, the host reads exact root references from the task store. Runtime adapters read only those roots and their verified descendants.
+- On reload, the host reads exact root references from durable task and workspace session records. Runtime adapters read only those roots and their verified descendants.
 - Runtime state cannot prove task ownership. Only an explicit workflow start or durable task record can attach a session to a task.
 - The browser uses one tagged SSE channel for all host events. Electron uses its generic host-event IPC message.
 - Ignore replayed changes while a reconnect waits for its new snapshot.
 - Treat each later snapshot as a full collection reset.
 - Commit a snapshot once so rows, activity, pending input, context, and counters use the same state.
-- The per-task session-list query is the only frontend cache for durable records.
+- Per-task session-list queries own workflow records. Workspace session-list queries own repository records. The first live projection waits for task records and for the workspace record query to settle. A workspace record failure blocks chat actions, not healthy task sessions.
 - Load one missing source record through `source-session-loader.ts`. Do not load its transcript or refresh the full repository model.
 
 This owner does not load catalogs, file status, diff, selected history, or page navigation. It does not select a native runtime protocol.
+
+`commitTranscriptActivity` applies transcript activity through the same collection commit before transcript assembly. It retains required pending-input links, including terminal child updates. It does not collect approval policy actions or reconcile workspace targets. Snapshots, session upserts or removals, and durable ownership updates retain those checks. Unchanged text deltas still reach transcript assembly.
+
+## Host command ownership
+
+Files: `packages/host/src/application/agent-sessions/agent-session-command-service.ts`, `agent-session-operation-policy.ts`, `task-workflow-session-policy.ts`, and `packages/host/src/application/workspaces/workspace-session-runtime-persistence.ts`.
+
+One command module owns session control. Task and workspace policy adapters supply stored identity, prompts, validation, and persistence. They do not form separate live orchestrators.
+
+- Hold the owner permit across fresh validation, native control, durable save, and recovery. Workflow commands use the existing task lifecycle guard. Workspace commands and archive share one per-session gate.
+- Native event observation must not acquire a command permit. Native controls can wait for their live events to commit.
+- Separate durable model save from event publication. The task-event module owns task publication rules. Composition only connects dependencies.
+- Report a failure after message acceptance without sending the message again.
+- Keep task start and workspace start as explicit durable operations. Generic native start or fork does not prove durable ownership.
+
+`AgentSessionMessageAcceptedError` retains a validated native message, its exact session reference, and the failed host stage. All runtime control adapters preserve acceptance across later live updates. The shared live module also preserves acceptance when the runtime detaches before the send returns. The shared command uses the same error for a failed metadata save. The router sends its `agent_session_message_accepted` failure through the existing host error contract. A rejection or invalid native response does not prove acceptance.
+
+`WorkspaceSessionStorePort.recordAcceptedMessage` validates and saves the generated title, monotonic activity time, and optional accepted model in one existing SQLite transaction. The workspace persistence policy publishes the returned record after commit. A publication failure cannot undo the save. Model-settings changes retain the stored `profileId`, including after compensation.
+
+## Host runtime lifecycle
+
+Files: `packages/host/src/application/agent-sessions/agent-session-live-state-service.ts`, `agent-session-live-runtime-lifecycle.ts`, and `packages/host/src/ports/agent-session-live-adapter-port.ts`.
+
+The live module owns runtime registration and ordered publication. Its internal lifecycle module owns registration leases, detach, and cleanup.
+
+- Create one nominal registration lease for each adapter. Its bound mutation method retains the lease when copied. Prepared or detached leases cannot publish live changes.
+- Detach and publish known removals under the live coordinator. Release native resources outside that coordinator.
+- After a failed detach read, publish an authoritative snapshot of the remaining registrations. Keep the original read error and report any cleanup or publication errors.
+- A host execution episode identifies a run. Renderer terminal state applies only to that episode. Current pending input takes priority.
+
+## Workspace metadata and notifications
+
+Files: `state/queries/workspace-sessions.ts`, `state/queries/workspace-session-updates.ts`, `state/queries/agent-session-association.ts`, and `features/notifications/notification-workspace-observer.ts`.
+
+One metadata subscription updates each shared query cache. Keep events that arrive during a record read until its cache commit. Discard a cancelled read's buffer once. Do not cancel a cold baseline or publish an incomplete baseline to apply an event.
+
+Notifications use task and workspace record caches to prove ownership, including in inactive workspaces. Their occurrence deduplication does not own live session state. A later record update can resolve a pending occurrence without a new native event. Workspace navigation requires an exact stored runtime kind, external session ID, and working directory.
 
 ## Runtime readiness
 
@@ -101,7 +138,7 @@ Owns transcript event routing, per-session batching, todo event forwarding, acti
 
 Rules:
 
-- Live activity, pending input, context, and removal arrive as live-state messages. Only `agent-session-live-projection.ts` applies them.
+- Live activity, pending input, context, and removal arrive as live-state messages. Only `agent-session-live-projection.ts` applies them. It also applies activity carried by a transcript event before transcript buffering. Transcript assembly cannot change activity.
 - `SessionTranscriptEventContext.session` is the only event target. Other capability groups do not copy session identity.
 - Transcript text exists only in `session.messages`.
 - `SessionTurnMetadata` owns turn anchors. `SessionTurnTiming` owns timing.
@@ -206,7 +243,8 @@ Rules:
 - Pass selected identity and loaded session as separate facts. Do not make a composer session copy.
 - Use the selected key for thread layout and autofocus. Do not derive it again from loaded state.
 - Validate runtime, provider, and model against the target catalog before a model update.
-- Persist an explicit session model choice before native runtime sync. Sync only an observed session.
+- Apply live model restrictions only when a native session identity exists. `model-selection-policy.ts` supplies the same profile and variant rules to visible options and selection actions. A saved workspace draft still uses startup model options.
+- The shared host command updates the native model, saves the durable choice, then publishes metadata. If the save fails, restore the previous native model before releasing the owner permit. A publication failure after a successful save must not roll back the native model.
 - `model-selection-preferences.ts` owns runtime and model fallback order.
 
 Build-tool worktree reads belong to `features/agent-studio-build-tools/use-agent-studio-build-tools-worktree-snapshot.ts`. Their key is repository, task ID, and task version. Git refresh belongs to `use-agent-studio-build-worktree-refresh.ts`. Transcript display state does not control either read.
@@ -216,6 +254,10 @@ Build-tool worktree reads belong to `features/agent-studio-build-tools/use-agent
 Files: `handlers/start-session.ts`, `handlers/session-launch-executor.ts`, `handlers/start-session-workflow-launch.ts`, `handlers/session-actions.ts`, `handlers/send-agent-message.ts`, `handlers/stop-session.ts`, `handlers/session-model-actions.ts`, `handlers/pending-input-actions.ts`, and `handlers/public-operations.ts`.
 
 Owns start, reuse, fork, send, stop, model update, pending-input replies, and workflow session registration.
+
+The shared send handler checks a typed accepted-message failure before ordinary send recovery. It upserts the native message once and adds a scoped failure notice. It completes the send action without restoring the accepted draft or resetting running state and pending input. Both task and workspace actions use this handler. Runtime-service conversion checks the exact session reference and preserves accepted model fields.
+
+Before sending to a stopped workspace session, the shared send handler resumes the same native session. It checks repository continuity and retains newer live activity and pending input. A failed resume sends no message. Stopped task sessions still require their task workflow action.
 
 Rules:
 
@@ -227,8 +269,8 @@ Rules:
 - Stop preparation failures before host control succeeds. If later frontend work fails, keep the task session stored by the host.
 - Only the explicit workflow start path can register task ownership. Runtime events cannot attach an unrelated root session.
 - A fresh or forked start holds `starting` until its first message finishes or fails.
-- `RunSessionStartWorkflow` awaits the first message. It reports a send failure in `postStartActionError`. Kanban and Agent Studio supply its local recovery callback. The runner invokes that callback before notification delivery, which suppresses the generic in-app toast for that failure and keeps OS and sound policy unchanged.
-- Agent Studio, Kanban, and Autopilot call the same `RunSessionStartWorkflow` command.
+- `RunSessionStartWorkflow` awaits the first message. It reports a send failure in `postStartActionError`. Kanban and the Task Workflows page supply its local recovery callback. The runner invokes that callback before notification delivery, which suppresses the generic in-app toast for that failure and keeps OS and sound policy unchanged.
+- The Task Workflows page, Kanban, and Autopilot call the same `RunSessionStartWorkflow` command.
 - Sessionless send uses the same start-availability rule as an explicit start.
 - The start modal reads runtime definitions from runtime availability context.
 - Action state owns busy, waiting, queued, and send-block rules. It does not copy identity or runtime-data loading.
@@ -243,7 +285,7 @@ Owns read-only history, preference for an existing live session, live pending in
 
 Files: `state/queries/agent-sessions.ts`, `session-read-model/task-session-records.ts`, `session-read-model/use-task-session-records.ts`, `hooks/use-repo-session-read-model.ts`, and `session-read-model/agent-session-workflow-records.ts`.
 
-Owns per-task durable record queries and task session history for Agent Studio, Kanban, task details, and Autopilot.
+Owns per-task durable record queries and task session history for the Task Workflows page, Kanban, task details, and Autopilot.
 
 Rules:
 
@@ -259,14 +301,14 @@ Rules:
 ## Startup sequence
 
 1. Read task IDs from the task store.
-2. Read per-task session records through shared Query keys.
-3. Attach to the generic host-event channel, then request a repository live snapshot. The host reads exact root references from durable task session records.
+2. Read task and workspace session records through their shared Query keys.
+3. Attach to the generic host-event channel, then request a repository live snapshot. The host reads exact root references from both durable record kinds.
 4. Each runtime adapter reads only registered roots and verified descendants. Apply durable records before and after the live projection, then commit once.
 5. Derive rows, activity, pending input, current context usage, and counters from that commit.
 6. Apply ordered changes on the same channel. After browser reconnect, wait for a fresh snapshot before replayed changes.
 7. Load history or missing context only for the selected session.
 
-Startup is complete when the task record query and first host snapshot have produced one committed collection. History does not block it.
+Startup is complete when task records and the first host snapshot have produced one committed collection after the workspace record query settles. Workspace record failures remain visible through `workspaceSessionRecordsError`. They do not stop the shared observer or fail task-session startup. History does not block startup.
 
 ## Regression tests
 

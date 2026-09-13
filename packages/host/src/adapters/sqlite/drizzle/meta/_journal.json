@@ -15,6 +15,20 @@
       "when": 1784673226817,
       "tag": "0001_soft_mauler",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788811505111,
+      "tag": "0002_workspace_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1788970975260,
+      "tag": "0003_workspace_session_drafts",
+      "breakpoints": true
     }
   ]
 }

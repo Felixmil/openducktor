@@ -22,6 +22,7 @@ export type SettingsSectionId =
   | "repositories"
   | "prompts"
   | "reusable-prompts"
+  | "custom-agent-roles"
   | "appearance"
   | "chat"
   | "kanban"
@@ -44,6 +45,7 @@ export const SETTINGS_SECTIONS: ReadonlyArray<{
   { id: "repositories", label: "Repositories", icon: FolderGit2 },
   { id: "prompts", label: "System Prompts", icon: MessageSquareText },
   { id: "reusable-prompts", label: "Reusable Prompts", icon: MessageSquarePlus },
+  { id: "custom-agent-roles", label: "Custom Agent Roles", icon: MessageSquareText },
   { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "kanban", label: "Kanban", icon: Columns3 },

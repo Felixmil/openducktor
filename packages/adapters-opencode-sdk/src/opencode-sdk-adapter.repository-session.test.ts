@@ -80,9 +80,9 @@ describe("OpencodeSdkAdapter repository sessions", () => {
       title: "Repository session",
       permission: expect.arrayContaining([
         { permission: "openducktor_*", pattern: "*", action: "deny" },
-        { permission: "odt_read_task", pattern: "*", action: "ask" },
-        { permission: "odt_create_task", pattern: "*", action: "ask" },
-        { permission: "odt_search_tasks", pattern: "*", action: "ask" },
+        { permission: "odt_read_task", pattern: "*", action: "allow" },
+        { permission: "odt_create_task", pattern: "*", action: "allow" },
+        { permission: "odt_search_tasks", pattern: "*", action: "allow" },
         { permission: "task", pattern: "*", action: "allow" },
       ]),
     });
@@ -93,14 +93,14 @@ describe("OpencodeSdkAdapter repository sessions", () => {
           sessionID: "repository-fork",
           title: "Repository session",
           permission: expect.arrayContaining([
-            { permission: "odt_create_task", pattern: "*", action: "ask" },
+            { permission: "odt_create_task", pattern: "*", action: "allow" },
           ]),
         }),
         expect.objectContaining({
           sessionID: "repository-resume",
           title: "Repository session",
           permission: expect.arrayContaining([
-            { permission: "odt_create_task", pattern: "*", action: "ask" },
+            { permission: "odt_create_task", pattern: "*", action: "allow" },
           ]),
         }),
       ]),
@@ -145,8 +145,8 @@ describe("OpencodeSdkAdapter repository sessions", () => {
         sessionID: "session-opencode-1",
         title: "Repository session",
         permission: expect.arrayContaining([
-          { permission: "odt_create_task", pattern: "*", action: "ask" },
-          { permission: "odt_search_tasks", pattern: "*", action: "ask" },
+          { permission: "odt_create_task", pattern: "*", action: "allow" },
+          { permission: "odt_search_tasks", pattern: "*", action: "allow" },
         ]),
       }),
     );
@@ -206,8 +206,8 @@ describe("OpencodeSdkAdapter repository sessions", () => {
         sessionID: "session-opencode-1",
         title: "Repository session",
         permission: expect.arrayContaining([
-          { permission: "odt_create_task", pattern: "*", action: "ask" },
-          { permission: "odt_search_tasks", pattern: "*", action: "ask" },
+          { permission: "odt_create_task", pattern: "*", action: "allow" },
+          { permission: "odt_search_tasks", pattern: "*", action: "allow" },
         ]),
       }),
     );

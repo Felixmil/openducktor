@@ -139,7 +139,7 @@ export const buildAgentStudioHref = (params: AgentStudioSessionSelectionQueryPar
     sessionExternalId: params.sessionExternalId,
     role: params.role,
   });
-  return `/agents?${searchParams.toString()}`;
+  return `/workflows?${searchParams.toString()}`;
 };
 
 export const isSameNavigationState = (

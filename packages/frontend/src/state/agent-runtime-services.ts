@@ -2,12 +2,15 @@ import { appQueryClient } from "@/lib/query-client";
 import { generatedImageMetadataSessionKey } from "@/state/queries/agent-generated-image-metadata";
 import type {
   AgentRepositorySessionStartInput,
+  AgentSessionLiveRef,
   RuntimeInstanceSummary,
   RuntimeKind,
 } from "@openducktor/contracts";
 import { RUNTIME_DESCRIPTORS_BY_KIND } from "@openducktor/contracts";
 import type { HostClient } from "@openducktor/host-client";
 import type { AcceptedAgentUserMessage, AgentEnginePort } from "@openducktor/core";
+import { agentSessionRefsEqual } from "@openducktor/core";
+import { HostInvokeError } from "@openducktor/host-client";
 import { validateRuntimeDefinitionForOpenDucktor } from "@/lib/agent-runtime";
 import { host } from "./operations/shared/host";
 import {
@@ -114,4 +117,17 @@ const toAcceptedAgentUserMessage = (
     acceptedMessage.model = acceptedModel;
   }
   return acceptedMessage;
+};
+
+export const getAcceptedMessageAfterSendFailure = (
+  error: HostInvokeError,
+  sessionRef: AgentSessionLiveRef,
+): AcceptedAgentUserMessage | null => {
+  if (
+    error.failure?.kind !== "agent_session_message_accepted" ||
+    !agentSessionRefsEqual(error.failure.sessionRef, sessionRef)
+  ) {
+    return null;
+  }
+  return toAcceptedAgentUserMessage(error.failure.acceptedMessage);
 };

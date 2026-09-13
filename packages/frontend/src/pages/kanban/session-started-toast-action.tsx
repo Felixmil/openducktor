@@ -14,7 +14,7 @@ export const renderSessionStartedToastAction = (
       className="h-auto w-fit p-0 text-sm font-medium text-primary underline underline-offset-2 hover:bg-transparent hover:text-primary/90"
       onClick={() => onOpen(intent, session)}
     >
-      Open in Agent Studio
+      Open in Task workflows
     </Button>
   );
 };

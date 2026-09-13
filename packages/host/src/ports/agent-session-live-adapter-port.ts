@@ -72,12 +72,33 @@ export type AgentSessionLiveAdapterMutation<Success> = {
   readonly changes: ReadonlyArray<AgentSessionLiveAdapterChange>;
 };
 
-/** Private runtime registration identity. It never crosses the host boundary. */
+/** Routing metadata. It never crosses the host boundary. */
 export type AgentSessionLiveAdapterBinding = {
   readonly runtimeId: string;
   readonly runtimeKind: RuntimeKind;
   readonly repoPath: string;
 };
+
+type RunLiveMutation = <A>(
+  mutation: Effect.Effect<AgentSessionLiveAdapterMutation<A>, HostError>,
+) => Effect.Effect<A, HostError>;
+
+/** A nominal lease. Its bound mutation method retains identity when a caller copies it. */
+export class AgentSessionLiveRegistration implements AgentSessionLiveAdapterBinding {
+  readonly runtimeId: string;
+  readonly runtimeKind: RuntimeKind;
+  readonly repoPath: string;
+  readonly #run: RunLiveMutation;
+
+  constructor(binding: AgentSessionLiveAdapterBinding, run: RunLiveMutation) {
+    this.runtimeId = binding.runtimeId;
+    this.runtimeKind = binding.runtimeKind;
+    this.repoPath = binding.repoPath;
+    this.#run = run;
+  }
+
+  readonly runMutation: RunLiveMutation = (mutation) => this.#run(mutation);
+}
 
 export type AgentSessionLiveAdapterScope = Pick<AgentSessionLiveRef, "repoPath" | "runtimeKind">;
 
@@ -95,7 +116,7 @@ type AgentSessionLiveAdapterBase = {
   readonly resolveGeneratedImageSource: (
     input: AgentGeneratedImageReadInput,
   ) => Effect.Effect<AgentGeneratedImageSource, HostError>;
-  readonly binding: AgentSessionLiveAdapterBinding;
+  readonly binding: AgentSessionLiveRegistration;
   readonly refreshSnapshots?: (repoPath: string) => Effect.Effect<void, HostError>;
   readonly listSnapshots: (
     repoPath: string,

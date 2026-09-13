@@ -1,4 +1,5 @@
 import { unexpectedRuntimeQueries } from "../../test-support/runtime-query-test-doubles";
+import { AgentSessionLiveRegistration } from "../../ports/agent-session-live-adapter-port";
 import { describe, expect, test } from "bun:test";
 import type {
   AgentSessionLiveEnvelope,
@@ -11,6 +12,7 @@ import { createLiveSessionAdapterRegistry } from "../../adapters/agent-sessions/
 import { type HostError, HostOperationError } from "../../effect/host-errors";
 import type {
   AgentSessionLiveAdapterPort,
+  AgentSessionLiveAdapterMutation,
   AgentSessionRuntimeAdapterPort,
 } from "../../ports/agent-session-live-adapter-port";
 import { createAgentSessionLiveStateService } from "./agent-session-live-state-service";
@@ -57,7 +59,10 @@ const fakeAdapter = (input: {
     releaseGeneratedImageBatch: () => Effect.dieMessage("Unexpected releaseGeneratedImageBatch"),
     describeGeneratedImages: () => Effect.dieMessage("Unexpected describeGeneratedImages"),
     resolveGeneratedImageSource: () => Effect.dieMessage("Unexpected generated image read"),
-    binding: { runtimeId: input.runtimeId, runtimeKind, repoPath: "/repo" },
+    binding: new AgentSessionLiveRegistration(
+      { runtimeId: input.runtimeId, runtimeKind, repoPath: "/repo" },
+      (mutation) => Effect.map(mutation, ({ value }) => value),
+    ),
     ...refreshSnapshots,
     listSnapshots: () =>
       input.listEffect ? input.listEffect() : Effect.succeed(input.snapshots()),
@@ -76,6 +81,31 @@ const fakeAdapter = (input: {
   } satisfies AgentSessionLiveAdapterPort;
   return adapter;
 };
+
+const mutationRegistrations = new WeakMap<
+  ReturnType<typeof createAgentSessionLiveStateService>,
+  AgentSessionLiveRegistration
+>();
+const mutateRegisteredAdapter = <A>(
+  service: ReturnType<typeof createAgentSessionLiveStateService>,
+  mutation: Effect.Effect<AgentSessionLiveAdapterMutation<A>, HostError>,
+): Effect.Effect<A, HostError> =>
+  Effect.gen(function* () {
+    let registration = mutationRegistrations.get(service);
+    if (!registration) {
+      registration = service.createRuntimeRegistration({
+        runtimeId: "runtime-test",
+        runtimeKind: "opencode",
+        repoPath: "/repo",
+      });
+      yield* service.registerRuntimeAdapter({
+        ...fakeAdapter({ runtimeId: "runtime-test", runtimeKind: "opencode", snapshots: () => [] }),
+        binding: registration,
+      });
+      mutationRegistrations.set(service, registration);
+    }
+    return yield* registration.runMutation(mutation);
+  });
 
 const createHarness = () => {
   const events: AgentSessionLiveEnvelope[] = [];
@@ -100,6 +130,86 @@ const expectHostFailure = async <Success>(
 };
 
 describe("createAgentSessionLiveStateService", () => {
+  test("resets the published collection after a failed detach read and a replacement registration", async () => {
+    const { service, events } = createHarness();
+    const old = {
+      ...liveSnapshot("old"),
+      activity: "waiting_for_question" as const,
+      pendingQuestions: [{ requestId: "old-question", questions: [] }],
+    };
+    const next = liveSnapshot("new");
+    const cleanupStarted = Promise.withResolvers<void>();
+    const cleanupFinish = Promise.withResolvers<void>();
+    let broken = false;
+    await Effect.runPromise(
+      service.registerRuntimeAdapter({
+        ...fakeAdapter({
+          runtimeId: "old-runtime",
+          snapshots: () => [old],
+          listEffect: () =>
+            broken
+              ? Effect.fail(
+                  new HostOperationError({ operation: "list", message: "detach read failed" }),
+                )
+              : Effect.succeed([old]),
+        }),
+        releaseRuntime: () =>
+          Effect.promise(async () => {
+            cleanupStarted.resolve();
+            await cleanupFinish.promise;
+            return [old.ref];
+          }),
+      }),
+    );
+    broken = true;
+    const release = Effect.runPromiseExit(service.releaseRuntime("old-runtime"));
+    await cleanupStarted.promise;
+    try {
+      await Effect.runPromise(
+        service.registerRuntimeAdapter(
+          fakeAdapter({ runtimeId: "new-runtime", snapshots: () => [next] }),
+        ),
+      );
+    } finally {
+      cleanupFinish.resolve();
+    }
+    expect((await release)._tag).toBe("Failure");
+    expect(events.at(-1)).toMatchObject({ type: "snapshot", repoPath: "/repo", sessions: [next] });
+    expect(await Effect.runPromise(service.list({ repoPath: "/repo" }))).toMatchObject([next]);
+  });
+
+  test("publishes released references when an unrelated adapter cannot read its snapshots", async () => {
+    const { service, events } = createHarness();
+    const owned = liveSnapshot("owned");
+    let broken = false;
+    await Effect.runPromise(
+      service.registerRuntimeAdapter(
+        fakeAdapter({ runtimeId: "released", snapshots: () => [owned] }),
+      ),
+    );
+    await Effect.runPromise(
+      service.registerRuntimeAdapter(
+        fakeAdapter({
+          runtimeId: "other",
+          runtimeKind: "opencode",
+          snapshots: () => [],
+          listEffect: () =>
+            broken
+              ? Effect.fail(
+                  new HostOperationError({
+                    operation: "other-read",
+                    message: "Other adapter read failed",
+                  }),
+                )
+              : Effect.succeed([]),
+        }),
+      ),
+    );
+    events.length = 0;
+    broken = true;
+    expect(await Effect.runPromise(service.releaseRuntime("released"))).toEqual([owned.ref]);
+    expect(events).toEqual([{ type: "session_removed", ref: owned.ref }]);
+  });
   test("publishes the same execution episode to list, read, and refresh consumers", async () => {
     const { events, service } = createHarness();
     const snapshot = liveSnapshot("shared-episode");
@@ -292,7 +402,8 @@ describe("createAgentSessionLiveStateService", () => {
     await Effect.runPromise(Deferred.await(entered));
     const updated = { ...liveSnapshot("session-1"), activity: "running" as const };
     const changeFiber = Effect.runFork(
-      service.runAdapterMutation(
+      mutateRegisteredAdapter(
+        service,
         Effect.sync(() => {
           snapshots = [updated];
           return {
@@ -331,7 +442,8 @@ describe("createAgentSessionLiveStateService", () => {
     );
     const updated = { ...liveSnapshot("session-1"), activity: "running" as const };
     await Effect.runPromise(
-      service.runAdapterMutation(
+      mutateRegisteredAdapter(
+        service,
         Effect.sync(() => {
           snapshots = [updated];
           return {
@@ -399,7 +511,8 @@ describe("createAgentSessionLiveStateService", () => {
       pendingApprovals: [],
     };
     const resolutionFiber = Effect.runFork(
-      service.runAdapterMutation(
+      mutateRegisteredAdapter(
+        service,
         Effect.sync(() => {
           snapshots = [resolved];
           return {
@@ -474,7 +587,8 @@ describe("createAgentSessionLiveStateService", () => {
       contextUsage: { totalTokens: 25 },
     };
     const contextFiber = Effect.runFork(
-      service.runAdapterMutation(
+      mutateRegisteredAdapter(
+        service,
         Effect.sync(() => {
           snapshots = [updated];
           return {
@@ -518,7 +632,8 @@ describe("createAgentSessionLiveStateService", () => {
     const updated: AgentSessionLiveSnapshot = { ...initial, activity: "running" };
     snapshots = [updated];
     await Effect.runPromise(
-      service.runAdapterMutation(
+      mutateRegisteredAdapter(
+        service,
         Effect.succeed({
           value: undefined,
           changes: [{ type: "session_upsert" as const, snapshot: updated }],
@@ -534,7 +649,8 @@ describe("createAgentSessionLiveStateService", () => {
     const ref = sessionRef("session-1");
 
     await Effect.runPromise(
-      service.runAdapterMutation(
+      mutateRegisteredAdapter(
+        service,
         Effect.succeed({
           value: undefined,
           changes: [
@@ -568,7 +684,8 @@ describe("createAgentSessionLiveStateService", () => {
     const { events, faultLogs, service } = createHarness();
 
     await Effect.runPromise(
-      service.runAdapterMutation(
+      mutateRegisteredAdapter(
+        service,
         Effect.succeed({
           value: undefined,
           changes: [
@@ -613,7 +730,8 @@ describe("createAgentSessionLiveStateService", () => {
     });
 
     const failure = await expectHostFailure(
-      service.runAdapterMutation(
+      mutateRegisteredAdapter(
+        service,
         Effect.succeed({
           value: undefined,
           changes: [
@@ -652,7 +770,8 @@ describe("createAgentSessionLiveStateService", () => {
     });
 
     const failure = await expectHostFailure(
-      service.runAdapterMutation(
+      mutateRegisteredAdapter(
+        service,
         Effect.succeed({
           value: undefined,
           changes: [
@@ -698,7 +817,8 @@ describe("createAgentSessionLiveStateService", () => {
     });
 
     const failure = await expectHostFailure(
-      service.runAdapterMutation(
+      mutateRegisteredAdapter(
+        service,
         Effect.succeed({
           value: undefined,
           changes: [
@@ -736,7 +856,8 @@ describe("createAgentSessionLiveStateService", () => {
     });
 
     const failure = await expectHostFailure(
-      service.runAdapterMutation(
+      mutateRegisteredAdapter(
+        service,
         Effect.succeed({
           value: undefined,
           changes: [
@@ -785,7 +906,8 @@ describe("createAgentSessionLiveStateService", () => {
     });
 
     const failure = await expectHostFailure(
-      service.runAdapterMutation(
+      mutateRegisteredAdapter(
+        service,
         Effect.succeed({
           value: undefined,
           changes: [
@@ -1007,7 +1129,7 @@ describe("createAgentSessionLiveStateService", () => {
     );
 
     expect(releaseCalled).toBe(true);
-    expect(events.at(-1)).toMatchObject({ type: "session_removed", ref: snapshot.ref });
+    expect(events.at(-1)).toMatchObject({ type: "snapshot", repoPath: "/repo", sessions: [] });
     await expect(Effect.runPromise(service.list({ repoPath: "/repo" }))).resolves.toEqual([]);
   });
 

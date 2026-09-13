@@ -1,3 +1,4 @@
+import { resolveModelPickerPresentation } from "./model-picker-presentation";
 import type { AgentModelFavorite, RuntimeKind } from "@openducktor/contracts";
 import type { AgentModelAttachmentSupport } from "@openducktor/core";
 import {
@@ -425,34 +426,16 @@ export function ModelPicker({
       }),
     [activeView, favoriteState.favorites, lockedRuntimeKind, runtimes, searchQuery],
   );
-  const selectedRuntime = runtimes.find(
-    (runtime) => runtime.descriptor.kind === value?.runtimeKind,
-  );
-  const selectedItem = runtimes
-    .flatMap((runtime) =>
-      (runtime.resource.catalog?.models ?? []).map((model) => ({ runtime, model })),
-    )
-    .find(
-      ({ runtime, model }) =>
-        runtime.descriptor.kind === value?.runtimeKind &&
-        model.providerId === value?.providerId &&
-        model.modelId === value?.modelId,
-    );
-  const triggerRuntime = selectedRuntime?.descriptor ?? null;
-  const triggerModelLabel = selectedItem?.model.modelName ?? value?.modelId ?? placeholder;
-  const triggerAriaLabel = triggerRuntime
-    ? `Select model, ${triggerRuntime.label}, ${triggerModelLabel}`
-    : `Select model, ${triggerModelLabel}`;
-  const visibleResources = runtimes.filter((runtime) => {
-    if (lockedRuntimeKind && runtime.descriptor.kind !== lockedRuntimeKind) {
-      return false;
-    }
-    if (searchQuery.trim() || activeView === "favorites") {
-      return true;
-    }
-    return runtime.descriptor.kind === activeView;
-  });
-  const activeRuntime = runtimes.find((runtime) => runtime.descriptor.kind === activeView) ?? null;
+  const { triggerRuntime, triggerModelLabel, triggerAriaLabel, visibleResources, emptyMessage } =
+    resolveModelPickerPresentation({
+      runtimes,
+      value,
+      placeholder,
+      activeView,
+      searchQuery,
+      favoriteState,
+      lockedRuntimeKind,
+    });
   const readOnlyReason = selectionPolicy.kind === "read_only" ? selectionPolicy.reason : null;
 
   const focusModelBoundary = (fromEnd: boolean): void => {
@@ -493,28 +476,6 @@ export function ModelPicker({
     setOpen(nextOpen);
     onOpenChange?.(nextOpen);
   };
-
-  const emptyMessage = (() => {
-    if (runtimes.length === 0) {
-      return "No agent runtimes are available.";
-    }
-    if (searchQuery.trim()) {
-      return "No models match your search.";
-    }
-    if (activeView === "favorites") {
-      if (favoriteState.isLoading) {
-        return "Loading favorites...";
-      }
-      if (favoriteState.readError) {
-        return "Favorites are unavailable until settings load succeeds.";
-      }
-      return "No favorite models are available here. Use a model row's star to add one.";
-    }
-    if (activeRuntime && activeRuntime.resource.status !== "ready") {
-      return null;
-    }
-    return `No ${activeRuntime?.descriptor.label ?? "runtime"} models are available.`;
-  })();
 
   let listContent: ReactElement | null = null;
   if (items.length > 0) {
@@ -603,14 +564,15 @@ export function ModelPicker({
         )}
         <PopoverContent
           portalContainer={portalContainer}
-          className="w-[min(42rem,calc(100vw-2rem))] overflow-hidden p-0"
+          className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(42rem,calc(100vw-2rem))] flex-col overflow-hidden p-0"
+          collisionPadding={8}
           onOpenAutoFocus={(event) => {
             event.preventDefault();
             searchInputRef.current?.focus();
           }}
         >
-          <div className="grid min-h-72 grid-cols-[3.5rem_minmax(0,1fr)]">
-            <div className="flex flex-col items-center gap-1 border-r border-border bg-muted/40 p-2">
+          <div className="grid min-h-0 grid-cols-[3.5rem_minmax(0,1fr)]">
+            <div className="flex min-h-0 flex-col items-center gap-1 overflow-y-auto border-r border-border bg-muted/40 p-2">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -652,8 +614,8 @@ export function ModelPicker({
                 );
               })}
             </div>
-            <div className="min-w-0">
-              <div className="border-b border-border p-2">
+            <div className="flex min-h-0 min-w-0 flex-col">
+              <div className="shrink-0 border-b border-border p-2">
                 <Input
                   ref={searchInputRef}
                   aria-label="Search models"
@@ -669,7 +631,7 @@ export function ModelPicker({
                 />
               </div>
               <FavoriteNotice state={favoriteState} />
-              <div className="max-h-80 overflow-y-auto overflow-x-hidden">
+              <div className="min-h-0 max-h-80 overflow-y-auto overflow-x-hidden">
                 {visibleResources.map((runtime) => (
                   <ResourceNotice key={runtime.descriptor.kind} runtime={runtime} />
                 ))}

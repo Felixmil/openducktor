@@ -53,7 +53,7 @@ export type OpenCodeRuntimeSessionAdapterPreparer = (
 export type CreateOpenCodeLiveSessionAdapterPreparerInput = {
   readonly liveSessionLifecycle: Pick<
     RuntimeLiveSessionLifecyclePort,
-    "releaseRuntime" | "runAdapterMutation"
+    "releaseRuntime" | "createRuntimeRegistration"
   >;
   readonly prepareRuntime: PrepareOpencodeSessionRuntime;
 };
@@ -99,6 +99,11 @@ export const createOpenCodeLiveSessionAdapterPreparer = ({
         nextOccurrenceId: () => `opencode-pending-${nextOccurrence++}`,
       });
       const runtimeSemaphore = Effect.unsafeMakeSemaphore(1);
+      const binding = liveSessionLifecycle.createRuntimeRegistration({
+        runtimeId: runtime.runtimeId,
+        runtimeKind: runtime.kind,
+        repoPath: runtime.repoPath,
+      });
       const serializeRuntime = runtimeSemaphore.withPermits(1);
       const contextLoads = new Map<string, Promise<AgentSessionContextUsage | null>>();
       let released = false;
@@ -117,7 +122,7 @@ export const createOpenCodeLiveSessionAdapterPreparer = ({
         operation: string,
         mutation: () => AgentSessionLiveAdapterMutation<Value>,
       ): Effect.Effect<Value, HostError> =>
-        liveSessionLifecycle.runAdapterMutation(
+        binding.runMutation(
           stateEffect(
             operation,
             () => {
@@ -269,11 +274,7 @@ export const createOpenCodeLiveSessionAdapterPreparer = ({
         ...unsupportedGeneratedImageOperations,
         resolveGeneratedImageSource: unsupportedGeneratedImageSource,
         supportsSessionControl: true,
-        binding: {
-          runtimeId: runtime.runtimeId,
-          runtimeKind: runtime.kind,
-          repoPath: runtime.repoPath,
-        },
+        binding,
         refreshSnapshots,
         listSnapshots: (repoPath) =>
           repoPath === runtime.repoPath

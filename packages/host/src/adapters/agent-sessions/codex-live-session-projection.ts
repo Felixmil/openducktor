@@ -45,9 +45,14 @@ export const createCodexLiveSessionProjection = ({
   liveSessionLifecycle,
 }: {
   readonly runtime: CodexProjectionRuntime;
-  readonly liveSessionLifecycle: Pick<RuntimeLiveSessionLifecyclePort, "runAdapterMutation">;
+  readonly liveSessionLifecycle: Pick<RuntimeLiveSessionLifecyclePort, "createRuntimeRegistration">;
 }) => {
   const snapshotsByRef = new Map<string, AgentSessionLiveSnapshot>();
+  const binding = liveSessionLifecycle.createRuntimeRegistration({
+    runtimeId: runtime.runtimeId,
+    runtimeKind: "codex" as const,
+    repoPath: runtime.repoPath,
+  });
   const queuedMutations: QueuedMutation[] = [];
   let forwarding = false;
   let released = false;
@@ -57,7 +62,7 @@ export const createCodexLiveSessionProjection = ({
   const applyMutation = (mutation: CodexLiveSessionMutation): Effect.Effect<void, HostError> =>
     parseMutation(mutation).pipe(
       Effect.flatMap((parsed) =>
-        liveSessionLifecycle.runAdapterMutation(
+        binding.runMutation(
           Effect.sync(() => {
             if (released) {
               return { value: undefined, changes: [] };
@@ -235,6 +240,7 @@ export const createCodexLiveSessionProjection = ({
     });
 
   return {
+    binding,
     applyMutation,
     enqueueMutation,
     hasSnapshot: (ref: AgentSessionLiveRef): boolean => snapshotsByRef.has(refKey(ref)),

@@ -1,11 +1,27 @@
 import { z } from "zod";
 import { runtimeQueryFailureSchema } from "./runtime-query-failure-schemas";
+import { acceptedAgentUserMessageSchema } from "./agent-session-control-schemas";
+import { agentSessionLiveRefSchema } from "./agent-session-schemas";
 import { workspaceTextFileWriteFailureSchema } from "./filesystem-schemas";
 import { sessionHistoryFailureSchema } from "./session-history-failure-schemas";
 import { taskAssetFailureSchema } from "./task-asset-schemas";
 import { terminalFailureSchema } from "./terminal-schemas";
 
 export const hostInvokeFailureSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("workspace_session_validation"),
+    field: z.enum(["worktree.name", "worktree.branchName"]),
+  }),
+  z.strictObject({
+    kind: z.literal("agent_session_message_accepted"),
+    sessionRef: agentSessionLiveRefSchema,
+    acceptedMessage: acceptedAgentUserMessageSchema,
+    stage: z.enum(["live_update", "record_message"]),
+  }),
+  z.strictObject({
+    kind: z.literal("workspace_session_confirmation"),
+    field: z.literal("confirmStop"),
+  }),
   z
     .object({ kind: z.literal("runtime_query"), runtimeQueryFailure: runtimeQueryFailureSchema })
     .strict(),

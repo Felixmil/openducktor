@@ -44,7 +44,7 @@ type CreateClaudeCanUseToolInput = {
 export type ClaudeToolUseAuthorization =
   | {
       behavior: "allow";
-      approval: "automatic" | "interactive" | "workflow_role";
+      approval: "automatic" | "interactive" | "workflow_role" | "trusted_odt";
       toolInput: ClaudeProtocolObject;
     }
   | {
@@ -211,6 +211,9 @@ export const authorizeClaudeToolUse = ({
 
   const role = claudeWorkflowRole(session.input);
   const odtToolName = canonicalOdtToolName(toolName);
+  if (odtToolName && session.input.sessionScope.kind === "repository") {
+    return { behavior: "allow", approval: "trusted_odt", toolInput: effectiveToolInput };
+  }
   if (odtToolName && role) {
     if (!AGENT_ROLE_TOOL_POLICY[role].some((allowedToolName) => allowedToolName === odtToolName)) {
       return {

@@ -551,6 +551,21 @@ const subscribeReadyLocalHostEventsEffect = (
     };
   });
 
+export const subscribeLocalHostWorkspaceSessionUpdates = async (
+  listener: import("@openducktor/frontend/lib/shell-bridge").WorkspaceSessionUpdateListener,
+): Promise<() => void> => {
+  const subscription = await runWebBoundary(
+    subscribeReadyLocalHostEventsEffect("openducktor://workspace-session-updated", (event) => {
+      if (isBrowserSseControlEvent(event)) {
+        listener(event);
+      } else if (event.channel === "openducktor://workspace-session-updated") {
+        listener(event.payload);
+      }
+    }),
+  );
+  return subscription.unsubscribe;
+};
+
 export const subscribeLocalHostDevServerEvents = async (
   listener: DevServerEventListener,
 ): Promise<DevServerEventSubscription> => {

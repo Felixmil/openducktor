@@ -7,6 +7,9 @@ export default {
   workspaces: {
     "apps/electron": electronKnipConfig,
     "packages/frontend": frontendKnipConfig,
+    "packages/host": {
+      drizzle: { config: ["drizzle.task-store.config.ts"] },
+    },
     "packages/openducktor-web": webKnipConfig,
   },
 };

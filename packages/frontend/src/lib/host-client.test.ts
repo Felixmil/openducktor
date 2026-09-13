@@ -25,6 +25,7 @@ const createRuntimeInstanceSummary = (runtimeId: string): RuntimeInstanceSummary
 
 const createTestShellBridge = (overrides: Partial<ShellBridge> = {}): ShellBridge => ({
   client: createHostClientFixture({}),
+  subscribeWorkspaceSessionUpdates: async () => () => {},
   subscribeRunEvents: async () => () => {},
   subscribeDevServerEvents: async () => ({
     transportEpoch: "test:0",

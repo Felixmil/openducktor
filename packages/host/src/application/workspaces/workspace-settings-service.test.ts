@@ -37,6 +37,7 @@ const repoConfig = (workspaceId: string, repoPath: string): RepoConfig => ({
   agentStudioState: { openTaskIds: [] },
 });
 const globalConfig = (overrides: Partial<GlobalConfig> = {}): GlobalConfig => ({
+  customAgentRoles: [],
   version: 3,
   system: {},
   theme: "light",
@@ -151,6 +152,66 @@ const createFakeSettingsConfig = ({
   return port;
 };
 describe("createWorkspaceSettingsService", () => {
+  test("saves role additions, edits, and deletions with the settings snapshot", async () => {
+    const existing = { id: "review", name: "Reviewer", systemPrompt: "Review code." };
+    const settingsConfig = createFakeSettingsConfig({
+      config: globalConfig({ customAgentRoles: [existing] }),
+    });
+    const service = createWorkspaceSettingsService(settingsConfig);
+    const snapshot = await Effect.runPromise(service.getSettingsSnapshot());
+    expect(snapshot.customAgentRoles).toEqual([existing]);
+    const updated = { ...existing, name: "Code reviewer", systemPrompt: "Review the diff." };
+    const added = { id: "research", name: "Researcher", systemPrompt: "Cite sources." };
+    await Effect.runPromise(
+      service.saveSettingsSnapshot({ ...snapshot, customAgentRoles: [updated, added] }),
+    );
+    expect(await Effect.runPromise(service.listCustomAgentRoles())).toEqual([updated, added]);
+    await Effect.runPromise(
+      service.saveSettingsSnapshot({ ...snapshot, customAgentRoles: [added] }),
+    );
+    const fresh = await Effect.runPromise(service.getSettingsSnapshot());
+    expect(fresh.customAgentRoles).toEqual([added]);
+    expect(settingsConfig.writtenConfigs).toHaveLength(2);
+    expect(settingsConfig.writtenConfigs[1]?.reusablePrompts).toEqual(snapshot.reusablePrompts);
+  });
+
+  test("rejects invalid role drafts before writing any settings", async () => {
+    const settingsConfig = createFakeSettingsConfig({ config: globalConfig() });
+    const service = createWorkspaceSettingsService(settingsConfig);
+    const snapshot = await Effect.runPromise(service.getSettingsSnapshot());
+    const role = { id: "one", name: "Reviewer", systemPrompt: "Review." };
+    for (const customAgentRoles of [
+      [{ ...role, name: " " }],
+      [{ ...role, systemPrompt: "" }],
+      [role, { ...role, id: "two", name: " REVIEWER " }],
+      [role, { ...role, name: "Researcher" }],
+    ]) {
+      await expect(
+        Effect.runPromise(service.saveSettingsSnapshot({ ...snapshot, customAgentRoles })),
+      ).rejects.toThrow();
+    }
+    expect(settingsConfig.writtenConfigs).toEqual([]);
+  });
+
+  test("a failed settings write leaves saved roles unchanged", async () => {
+    const role = { id: "one", name: "Reviewer", systemPrompt: "Review." };
+    const settingsConfig = createFakeSettingsConfig({
+      config: globalConfig({ customAgentRoles: [role] }),
+      beforeWrite: async () => {
+        throw new Error("Disk is full");
+      },
+    });
+    const service = createWorkspaceSettingsService(settingsConfig);
+    const snapshot = await Effect.runPromise(service.getSettingsSnapshot());
+    await expect(
+      Effect.runPromise(service.saveSettingsSnapshot({ ...snapshot, customAgentRoles: [] })),
+    ).rejects.toThrow("Disk is full");
+    expect((await Effect.runPromise(service.getSettingsSnapshot())).customAgentRoles).toEqual([
+      role,
+    ]);
+    expect(settingsConfig.writtenConfigs).toEqual([]);
+  });
+
   test("returns default settings snapshot when config is missing", async () => {
     const service = createWorkspaceSettingsService(createFakeSettingsConfig());
     const snapshot = await Effect.runPromise(service.getSettingsSnapshot());

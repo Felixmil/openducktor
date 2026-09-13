@@ -22,6 +22,7 @@ export type { InvokeFn } from "./invoke-utils";
 export { HostTerminalClientError } from "./terminal-client";
 
 import { HostWorkspaceClient } from "./workspace-client";
+import { HostWorkspaceSessionClient } from "./workspace-session-client";
 
 type PublicMethods<Client> = {
   [
@@ -30,6 +31,7 @@ type PublicMethods<Client> = {
 };
 
 type HostClientApi = PublicMethods<HostWorkspaceClient> &
+  PublicMethods<HostWorkspaceSessionClient> &
   PublicMethods<HostFilesystemClient> &
   PublicMethods<HostPullRequestReviewClient> &
   PublicMethods<HostSystemClient> &
@@ -45,6 +47,7 @@ export type HostClient = HostClientApi & PlannerTools;
 const createHostClientApi = (invokeFn: InvokeFn): HostClientApi => {
   const metadataCache = new TaskMetadataCache();
   const workspaceClient = new HostWorkspaceClient(invokeFn);
+  const workspaceSessionClient = new HostWorkspaceSessionClient(invokeFn);
   const filesystemClient = new HostFilesystemClient(invokeFn);
   const pullRequestReviewClient = new HostPullRequestReviewClient(invokeFn);
   const systemClient = new HostSystemClient(invokeFn);
@@ -55,6 +58,29 @@ const createHostClientApi = (invokeFn: InvokeFn): HostClientApi => {
   const agentRuntimeQueryClient = new HostAgentRuntimeQueryClient(invokeFn);
   const gitClient = new HostGitClient(invokeFn);
   const hostClient = {
+    workspaceSessionListActive:
+      workspaceSessionClient.workspaceSessionListActive.bind(workspaceSessionClient),
+    workspaceSessionListArchived:
+      workspaceSessionClient.workspaceSessionListArchived.bind(workspaceSessionClient),
+    workspaceSessionGet: workspaceSessionClient.workspaceSessionGet.bind(workspaceSessionClient),
+    workspaceSessionCreate:
+      workspaceSessionClient.workspaceSessionCreate.bind(workspaceSessionClient),
+    workspaceSessionStart:
+      workspaceSessionClient.workspaceSessionStart.bind(workspaceSessionClient),
+    workspaceSessionSetDraftModel:
+      workspaceSessionClient.workspaceSessionSetDraftModel.bind(workspaceSessionClient),
+    workspaceSessionRename:
+      workspaceSessionClient.workspaceSessionRename.bind(workspaceSessionClient),
+    workspaceSessionArchive:
+      workspaceSessionClient.workspaceSessionArchive.bind(workspaceSessionClient),
+    workspaceSessionArchivePreview:
+      workspaceSessionClient.workspaceSessionArchivePreview.bind(workspaceSessionClient),
+    workspaceSessionRestore:
+      workspaceSessionClient.workspaceSessionRestore.bind(workspaceSessionClient),
+    customAgentRoleList: workspaceClient.customAgentRoleList.bind(workspaceClient),
+    customAgentRoleCreate: workspaceClient.customAgentRoleCreate.bind(workspaceClient),
+    customAgentRoleUpdate: workspaceClient.customAgentRoleUpdate.bind(workspaceClient),
+    customAgentRoleDelete: workspaceClient.customAgentRoleDelete.bind(workspaceClient),
     workspaceList: workspaceClient.workspaceList.bind(workspaceClient),
     workspaceAdd: workspaceClient.workspaceAdd.bind(workspaceClient),
     workspaceSelect: workspaceClient.workspaceSelect.bind(workspaceClient),

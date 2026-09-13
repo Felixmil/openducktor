@@ -42,6 +42,7 @@ test("opens test notification settings without workspace or task reads", async (
       openSettings,
       loadTasks,
       selectWorkspace,
+      loadWorkspaceSessions: async () => [],
       loadTaskSessions: async () => [],
       navigate: () => {},
       reportStale: () => {
@@ -75,11 +76,11 @@ describe("notification navigation", () => {
 
   test("adds only transient attention keys to the Agent Studio URL", () => {
     const href = addNotificationAttention(
-      "/agents?task=task-1&session=session-1&agent=build",
+      "/workflows?task=task-1&session=session-1&agent=build",
       target,
     );
     expect(href).toBe(
-      "/agents?task=task-1&session=session-1&agent=build&attention=permission&attentionId=request-1",
+      "/workflows?task=task-1&session=session-1&agent=build&attention=permission&attentionId=request-1",
     );
     expect(href).not.toContain("runtimeKind");
     expect(href).not.toContain("workingDirectory");
@@ -94,7 +95,7 @@ describe("notification navigation", () => {
     const loadTasks = mock(async () => []);
     const reportStale = mock((message: string) => {
       calls.push("report-stale");
-      expect(message).toBe("Repository session notifications cannot be opened yet.");
+      expect(message).toBe("The exact Workspace Session is no longer available.");
     });
 
     await navigateToNotificationTarget(
@@ -108,6 +109,7 @@ describe("notification navigation", () => {
         workspaces: [{ workspaceId: "workspace-repo", repoPath: "/repo" }],
         selectWorkspace,
         loadTasks,
+        loadWorkspaceSessions: async () => [],
         loadTaskSessions: mock(async () => []),
         navigate,
         reportStale,
@@ -145,6 +147,7 @@ describe("notification navigation", () => {
         workspaces: [{ workspaceId: "workspace-repo", repoPath: "/repo" }],
         selectWorkspace,
         loadTasks,
+        loadWorkspaceSessions: async () => [],
         loadTaskSessions: mock(async () => []),
         navigate,
         reportStale: mock(() => {}),
@@ -160,7 +163,7 @@ describe("notification navigation", () => {
     finishSelection?.();
     await navigation;
 
-    expect(navigate).toHaveBeenCalledWith("/agents?task=task-1&agent=build");
+    expect(navigate).toHaveBeenCalledWith("/workflows?task=task-1&agent=build");
   });
 
   test("matches only the requested error episode", () => {
@@ -191,6 +194,7 @@ test("passes the exact session identity through transient navigation state", asy
     workspaces: [{ workspaceId: "workspace", repoPath: "/repo" }],
     selectWorkspace: async () => {},
     loadTasks: async () => [createTaskCardFixture({ id: "task-1" })],
+    loadWorkspaceSessions: async () => [],
     loadTaskSessions: async () => [{ ...session, runtimeKind: "opencode" }, session],
     navigate,
     openSettings: () => {},
@@ -199,7 +203,7 @@ test("passes the exact session identity through transient navigation state", asy
     },
   });
   expect(navigate).toHaveBeenCalledWith(
-    "/agents?task=task-1&session=session-1&agent=build&attention=permission&attentionId=request-1",
+    "/workflows?task=task-1&session=session-1&agent=build&attention=permission&attentionId=request-1",
     { state: { notificationTarget: target } },
   );
 });
@@ -222,6 +226,7 @@ test.each(["workspace", "tasks", "sessions"])(
           selectWorkspace: stage === "workspace" ? fail : async () => {},
           loadTasks:
             stage === "tasks" ? fail : async () => [createTaskCardFixture({ id: "task-1" })],
+          loadWorkspaceSessions: async () => [],
           loadTaskSessions: stage === "sessions" ? fail : async () => [session],
           navigate,
           reportStale: () => {},

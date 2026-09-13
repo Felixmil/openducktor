@@ -54,19 +54,24 @@ export const createStopAgentSession = ({
     requireSessionAssociation(session, "stop");
     const stopRepoPath = requireWorkspaceRepoPath(workspaceRepoPath);
 
+    const stopRequestedAt = now();
     updateSession(session, (current) => ({
       ...current,
-      stopRequestedAt: now(),
+      stopRequestedAt,
     }));
 
     try {
       await adapter.stopSession(toRuntimeSessionRef(stopRepoPath, session));
     } catch (error) {
       const stoppedSession =
-        updateSession(session, (current) => ({
-          ...current,
-          stopRequestedAt: null,
-        })) ?? readSessionSnapshot(session);
+        updateSession(session, (current) =>
+          current.stopRequestedAt === stopRequestedAt
+            ? {
+                ...current,
+                stopRequestedAt: null,
+              }
+            : current,
+        ) ?? readSessionSnapshot(session);
       if (stoppedSession?.status === "stopped") {
         await refreshStoppedWorkflowSession(stoppedSession);
       }
@@ -74,10 +79,14 @@ export const createStopAgentSession = ({
     }
 
     const stoppedSessionRef = toRuntimeSessionRef(stopRepoPath, session);
-    clearSessionTurnState(stoppedSessionRef);
 
     const stoppedAt = now();
     const nextStoppedSession = updateSession(session, (current) => {
+      if (current.executionEpisodeId !== session.executionEpisodeId) {
+        return current.stopRequestedAt === stopRequestedAt
+          ? { ...current, stopRequestedAt: null }
+          : current;
+      }
       const shouldAppendUserStoppedNotice = Boolean(current.stopRequestedAt);
       return {
         ...current,
@@ -92,7 +101,8 @@ export const createStopAgentSession = ({
       };
     });
 
-    if (nextStoppedSession) {
+    if (nextStoppedSession?.status === "stopped") {
+      clearSessionTurnState(stoppedSessionRef);
       await refreshStoppedWorkflowSession(nextStoppedSession);
     }
   };

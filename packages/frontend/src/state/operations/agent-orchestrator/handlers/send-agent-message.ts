@@ -5,10 +5,12 @@ import {
   hasMeaningfulAgentUserMessageParts,
   normalizeAgentUserMessageParts,
 } from "@openducktor/core";
-import { agentSessionIdentityKey } from "@/lib/agent-session-identity";
+import { agentSessionIdentityKey, matchesAgentSessionIdentity } from "@/lib/agent-session-identity";
 import { AgentMessageSendError } from "@/lib/agent-message-send-error";
 import { isAgentSessionWaitingInput } from "@/lib/agent-session-waiting-input";
 import { errorMessage } from "@/lib/errors";
+import { getAcceptedMessageAfterSendFailure } from "@/state/agent-runtime-services";
+import { HostInvokeError } from "@openducktor/host-client";
 import type {
   AgentChatMessage,
   AgentMessageSendOptions,
@@ -16,7 +18,7 @@ import type {
   AgentSessionState,
 } from "@/types/agent-orchestrator";
 import type { UpdateSession } from "../events/session-event-types";
-import { now } from "../support/core";
+import { createRepoStaleGuard, now, throwIfRepoStale } from "../support/core";
 import {
   appendSessionMessage,
   someSessionMessage,
@@ -35,7 +37,9 @@ import type { PreparedSessionSend } from "./prepare-session-send";
 
 export type SendAgentMessageDependencies = {
   workspaceRepoPath: string | null;
-  adapter: Pick<AgentEnginePort, "sendUserMessage">;
+  repoEpochRef: { current: number };
+  currentWorkspaceRepoPathRef: { current: string | null };
+  adapter: Pick<AgentEnginePort, "sendUserMessage" | "resumeSession">;
   readSessionSnapshot: ReadSessionSnapshot;
   updateSession: UpdateSession;
   prepareSessionSend: (
@@ -72,11 +76,15 @@ export const settleLoadedStartingSession = (
   if (session.status !== "starting") {
     return;
   }
-  updateSession(session, (current) => ({
-    ...current,
-    status,
-    runtimeStatusMessage: null,
-  }));
+  updateSession(session, (current) =>
+    current.status === "starting" && current.executionEpisodeId === session.executionEpisodeId
+      ? {
+          ...current,
+          status,
+          runtimeStatusMessage: null,
+        }
+      : current,
+  );
 };
 
 const prepareIdleSessionForSend = async ({
@@ -104,13 +112,11 @@ const markSessionRunningForSend = (
     SendAgentMessageDependencies,
     "recordTurnUserMessageTimestamp" | "turnMetadata" | "updateSession"
   >,
-): void => {
+): number => {
   const sessionKey = agentSessionIdentityKey(session);
   const selectedModel = session.selectedModel ?? undefined;
-  const pendingUserMessageStartedAt = dependencies.recordTurnUserMessageTimestamp(
-    sessionKey,
-    Date.now(),
-  );
+  const pendingUserMessageStartedAt = Date.now();
+  dependencies.recordTurnUserMessageTimestamp(sessionKey, pendingUserMessageStartedAt);
   dependencies.turnMetadata.recordModel(sessionKey, selectedModel ?? null);
   dependencies.updateSession(session, (current) => ({
     ...current,
@@ -118,6 +124,7 @@ const markSessionRunningForSend = (
     runtimeStatusMessage: null,
     pendingUserMessageStartedAt,
   }));
+  return pendingUserMessageStartedAt;
 };
 
 const appendSendFailureNotice = (
@@ -151,7 +158,7 @@ const appendSendFailureNotice = (
       {
         id: crypto.randomUUID(),
         role: "system",
-        content: `Failed to send message: ${message}`,
+        content: message,
         timestamp: now(),
         meta,
       },
@@ -185,10 +192,38 @@ export const createSendAgentMessage = (dependencies: SendAgentMessageDependencie
     const isManualCompactionSend =
       classifySystemSlashCommandInvocation(normalizedParts).kind === "manual_session_compaction";
 
-    const currentSession = requireLoadedSession(dependencies.readSessionSnapshot, identity);
+    let currentSession = requireLoadedSession(dependencies.readSessionSnapshot, identity);
     const externalSessionId = currentSession.externalSessionId;
     if (currentSession.status === "stopped") {
-      throw new Error(`Cannot send message to stopped session '${externalSessionId}'.`);
+      if (currentSession.sessionAssociation?.kind !== "repository") {
+        throw new Error(`Cannot send message to stopped session '${externalSessionId}'.`);
+      }
+      const repoPath = requireWorkspaceRepoPath(dependencies.workspaceRepoPath);
+      const isRepoStale = createRepoStaleGuard({
+        repoPath,
+        repoEpochRef: dependencies.repoEpochRef,
+        currentWorkspaceRepoPathRef: dependencies.currentWorkspaceRepoPathRef,
+      });
+      const staleError = "Workspace changed while resuming the session.";
+      throwIfRepoStale(isRepoStale, staleError);
+      const stoppedSession = currentSession;
+      const resumed = await dependencies.adapter.resumeSession(
+        toBoundRuntimeSessionRef(repoPath, stoppedSession, "resume session"),
+      );
+      throwIfRepoStale(isRepoStale, staleError);
+      if (!matchesAgentSessionIdentity(resumed, stoppedSession)) {
+        throw new Error(`The runtime resumed a different session than '${externalSessionId}'.`);
+      }
+      dependencies.updateSession(stoppedSession, (current) =>
+        current.status === "stopped" &&
+        current.executionEpisodeId === stoppedSession.executionEpisodeId
+          ? { ...current, status: resumed.status, runtimeStatusMessage: null }
+          : current,
+      );
+      currentSession = requireLoadedSession(dependencies.readSessionSnapshot, identity);
+      if (currentSession.status === "stopped") {
+        throw new Error(`Session '${externalSessionId}' is still stopped after resume.`);
+      }
     }
     if (isAgentSessionWaitingInput(currentSession)) {
       settleStartingSession(
@@ -222,9 +257,9 @@ export const createSendAgentMessage = (dependencies: SendAgentMessageDependencie
     }
 
     const isBusyQueuedSend = readySession.status === "running";
-    if (!isBusyQueuedSend) {
-      markSessionRunningForSend(readySession, dependencies);
-    }
+    const sendAttempt = isBusyQueuedSend
+      ? undefined
+      : markSessionRunningForSend(readySession, dependencies);
 
     try {
       const runtimeSessionRef = toBoundRuntimeSessionRef(
@@ -247,23 +282,52 @@ export const createSendAgentMessage = (dependencies: SendAgentMessageDependencie
         upsertAcceptedUserMessage(readySession, acceptedUserMessage, dependencies.updateSession);
       }
     } catch (error) {
+      const acceptedMessage =
+        error instanceof HostInvokeError
+          ? getAcceptedMessageAfterSendFailure(error, {
+              repoPath: requireWorkspaceRepoPath(dependencies.workspaceRepoPath),
+              runtimeKind: readySession.runtimeKind,
+              workingDirectory: readySession.workingDirectory,
+              externalSessionId,
+            })
+          : null;
+      if (acceptedMessage) {
+        if (!isManualCompactionSend) {
+          upsertAcceptedUserMessage(readySession, acceptedMessage, dependencies.updateSession);
+        }
+        appendSendFailureNotice(
+          readySession,
+          errorMessage(error),
+          dependencies.updateSession,
+          false,
+          options?.errorAttentionId,
+        );
+        return;
+      }
+      let settledOwnAttempt = false;
       dependencies.updateSession(readySession, (current) => {
-        if (isBusyQueuedSend) return { ...current, pendingUserMessageStartedAt: undefined };
+        if (
+          isBusyQueuedSend ||
+          current.executionEpisodeId !== readySession.executionEpisodeId ||
+          current.pendingUserMessageStartedAt !== sendAttempt
+        )
+          return current;
+        settledOwnAttempt = true;
         return {
           ...current,
-          status: "error",
+          status: readySession.status === "starting" ? "idle" : readySession.status,
           runtimeStatusMessage: null,
           pendingUserMessageStartedAt: undefined,
         };
       });
       appendSendFailureNotice(
         readySession,
-        errorMessage(error),
+        `Failed to send message: ${errorMessage(error)}`,
         dependencies.updateSession,
         isManualCompactionSend && !isBusyQueuedSend,
         options?.errorAttentionId,
       );
-      if (!isBusyQueuedSend) {
+      if (settledOwnAttempt) {
         dependencies.clearSessionTurnState(readySession);
       }
       const errorAttentionId = options?.errorAttentionId;

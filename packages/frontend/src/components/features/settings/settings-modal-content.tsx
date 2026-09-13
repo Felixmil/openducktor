@@ -17,6 +17,7 @@ import { PromptOverridesSection } from "./settings-prompt-overrides-section";
 import { SettingsRepositoryContent } from "./settings-repository-content";
 import { SettingsReusablePromptsSection } from "./settings-reusable-prompts-section";
 import type { SettingsModalController } from "./use-settings-modal-controller";
+import { SettingsCustomAgentRolesSection } from "./settings-custom-agent-roles-section";
 
 type SettingsModalContentProps = {
   section: SettingsSectionId;
@@ -24,6 +25,8 @@ type SettingsModalContentProps = {
   globalPromptRoleTab: PromptRoleTabId;
   repoPromptRoleTab: PromptRoleTabId;
   selectedReusablePromptId: string | null;
+  selectedCustomAgentRoleId: string | null;
+  onSelectedCustomAgentRoleIdChange: (next: string | null) => void;
   isInteractionDisabled: boolean;
   controller: SettingsModalController;
   onRepositorySectionChange: (next: RepositorySectionId) => void;
@@ -34,12 +37,16 @@ type SettingsModalContentProps = {
   onContentFocusRequestHandled?: (request: SettingsContentFocusRequest) => void;
 };
 
+// This flat dispatcher keeps each Settings section in its existing component.
+// react-doctor-disable-next-line react-doctor/no-high-complexity-react-function
 export function SettingsModalContent({
   section,
   repositorySection,
   globalPromptRoleTab,
   repoPromptRoleTab,
   selectedReusablePromptId,
+  selectedCustomAgentRoleId,
+  onSelectedCustomAgentRoleIdChange,
   isInteractionDisabled,
   controller,
   onRepositorySectionChange,
@@ -101,6 +108,19 @@ export function SettingsModalContent({
         general={snapshotDraft.general}
         disabled={isInteractionDisabled}
         onUpdateGeneral={updateGlobalGeneralSettings}
+      />
+    );
+  }
+
+  if (section === "custom-agent-roles") {
+    return (
+      <SettingsCustomAgentRolesSection
+        roles={snapshotDraft.customAgentRoles}
+        selectedRoleId={selectedCustomAgentRoleId}
+        validation={controller.customAgentRoleValidationState}
+        disabled={isInteractionDisabled}
+        onSelect={onSelectedCustomAgentRoleIdChange}
+        onUpdate={controller.updateCustomAgentRoles}
       />
     );
   }

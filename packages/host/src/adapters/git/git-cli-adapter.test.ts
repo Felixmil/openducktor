@@ -18,18 +18,25 @@ describe("createGitCliAdapter", () => {
   test("lists branches with current local branches first and skips remote HEAD refs", async () => {
     const git = createGitCliAdapter({
       runner: createRunner({
-        "for-each-ref --format=%(if)%(HEAD)%(then)1%(else)0%(end)|%(refname:short)|%(refname) refs/heads refs/remotes":
+        "for-each-ref --format=%(if)%(HEAD)%(then)1%(else)0%(end)%00%(refname:short)%00%(refname)%00%(worktreepath)%00 refs/heads refs/remotes":
           [
-            "0|origin/HEAD|refs/remotes/origin/HEAD",
-            "0|origin/main|refs/remotes/origin/main",
-            "0|feature/b|refs/heads/feature/b",
-            "1|feature/a|refs/heads/feature/a",
-          ].join("\n"),
+            "0\0origin/HEAD\0refs/remotes/origin/HEAD\0\0",
+            "0\0origin/main\0refs/remotes/origin/main\0\0",
+            "0\0feature/b\0refs/heads/feature/b\0/other | checkout\nwith newline \0",
+            "1\0feature/a\0refs/heads/feature/a\0/repo\0",
+            "0\0feature/free\0refs/heads/feature/free\0\0",
+          ].join("\n") + "\n",
       }),
     });
     await expect(Effect.runPromise(git.listBranches("/repo"))).resolves.toEqual([
-      { name: "feature/a", isCurrent: true, isRemote: false },
-      { name: "feature/b", isCurrent: false, isRemote: false },
+      { name: "feature/a", isCurrent: true, isRemote: false, worktreePath: "/repo" },
+      {
+        name: "feature/b",
+        isCurrent: false,
+        isRemote: false,
+        worktreePath: "/other | checkout\nwith newline ",
+      },
+      { name: "feature/free", isCurrent: false, isRemote: false },
       { name: "origin/main", isCurrent: false, isRemote: true },
     ]);
   });
@@ -934,8 +941,8 @@ describe("createGitCliAdapter", () => {
           ok: true,
           stdout:
             {
-              "for-each-ref --format=%(if)%(HEAD)%(then)1%(else)0%(end)|%(refname:short)|%(refname) refs/heads refs/remotes":
-                "1|main|refs/heads/main\n0|origin/main|refs/remotes/origin/main\n0|odt/task-1|refs/heads/odt/task-1\n",
+              "for-each-ref --format=%(if)%(HEAD)%(then)1%(else)0%(end)%00%(refname:short)%00%(refname)%00%(worktreepath)%00 refs/heads refs/remotes":
+                "1\0main\0refs/heads/main\0/repo\0\n0\0origin/main\0refs/remotes/origin/main\0\0\n0\0odt/task-1\0refs/heads/odt/task-1\0\0\n",
               "status --porcelain=v1 -z --untracked-files=all": "",
               "switch --end-of-options main": "",
               "branch --show-current": "main\n",
@@ -958,7 +965,7 @@ describe("createGitCliAdapter", () => {
       output: "Merge made by recursive.",
     });
     expect(calls).toEqual([
-      "for-each-ref --format=%(if)%(HEAD)%(then)1%(else)0%(end)|%(refname:short)|%(refname) refs/heads refs/remotes",
+      "for-each-ref --format=%(if)%(HEAD)%(then)1%(else)0%(end)%00%(refname:short)%00%(refname)%00%(worktreepath)%00 refs/heads refs/remotes",
       "status --porcelain=v1 -z --untracked-files=all",
       "switch --end-of-options main",
       "branch --show-current",
@@ -985,8 +992,8 @@ describe("createGitCliAdapter", () => {
           ok: true,
           stdout:
             {
-              "for-each-ref --format=%(if)%(HEAD)%(then)1%(else)0%(end)|%(refname:short)|%(refname) refs/heads refs/remotes":
-                "1|main|refs/heads/main\n0|odt/task-1|refs/heads/odt/task-1\n",
+              "for-each-ref --format=%(if)%(HEAD)%(then)1%(else)0%(end)%00%(refname:short)%00%(refname)%00%(worktreepath)%00 refs/heads refs/remotes":
+                "1\0main\0refs/heads/main\0/repo\0\n0\0odt/task-1\0refs/heads/odt/task-1\0\0\n",
               "status --porcelain=v1 -z --untracked-files=all": mergeFailed
                 ? "UU src/main.ts\n"
                 : "",

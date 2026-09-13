@@ -1,6 +1,7 @@
 import type { AgentModelCatalog, AgentModelSelection } from "@openducktor/core";
 import { resolveAgentAccentColor, toPrimaryAgentOptions } from "@/components/features/agents";
 import type { ComboboxOption } from "@/components/ui/combobox";
+import { resolveModelSelectionPolicy } from "./model-selection-policy";
 
 type ModelSelectionOptions = {
   selectedModelEntry: AgentModelCatalog["models"][number] | null;
@@ -66,10 +67,8 @@ const toVariantOptions = (
     }
     return [];
   }
-  let variants = selectedModelEntry.variants;
+  let { variants } = resolveModelSelectionPolicy(selectedModelEntry, liveSession);
   if (liveSession && selectedModelEntry.liveSessionUpdates?.variants) {
-    const liveSessionVariants = new Set(selectedModelEntry.liveSessionUpdates.variants);
-    variants = selectedModelEntry.variants.filter((variant) => liveSessionVariants.has(variant));
     const selectedVariant = selectedModelSelection?.variant;
     if (
       selectedVariant &&
@@ -114,12 +113,20 @@ export const resolveModelSelectionOptions = ({
   selectedModelSelection: AgentModelSelection | null;
 }): ModelSelectionOptions => {
   const selectedModelEntry = findSelectedModelEntry(selectionCatalog, selectedModelSelection);
+  const policy = resolveModelSelectionPolicy(selectedModelEntry, liveSession);
+  const profileOptions = toAgentProfileOptionsWithSelectedFallback(
+    selectionCatalog,
+    selectedModelSelection,
+  );
   return {
     selectedModelEntry,
-    agentProfileOptions: toAgentProfileOptionsWithSelectedFallback(
-      selectionCatalog,
-      selectedModelSelection,
-    ),
+    agentProfileOptions: policy.canChangeProfile
+      ? profileOptions
+      : profileOptions.map((option) => ({
+          ...option,
+          disabled: true,
+          description: "Start a new session to change the agent profile.",
+        })),
     variantOptions: toVariantOptions(selectedModelEntry, selectedModelSelection, liveSession),
     agentAccentColorsByProfileId: toAgentAccentColorsByProfileId(selectionCatalog),
   };

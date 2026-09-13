@@ -1,5 +1,8 @@
 import {
   type AgentModelFavorite,
+  type CustomAgentRole,
+  type CustomAgentRoleInput,
+  customAgentRoleSchema,
   type GitProviderRepository,
   type GlobalGitConfig,
   gitProviderRepositorySchema,
@@ -190,6 +193,26 @@ const workspaceResolveLocalAttachmentPath = async (
 
 export class HostWorkspaceClient {
   constructor(private readonly invokeFn: InvokeFn) {}
+
+  async customAgentRoleList(): Promise<CustomAgentRole[]> {
+    return this.invokeFn(
+      "custom_agent_role_list",
+      undefined,
+      arrayResultSchema(customAgentRoleSchema, "custom_agent_role_list"),
+    );
+  }
+
+  async customAgentRoleCreate(input: CustomAgentRoleInput): Promise<CustomAgentRole> {
+    return this.invokeFn("custom_agent_role_create", { input }, customAgentRoleSchema);
+  }
+
+  async customAgentRoleUpdate(id: string, input: CustomAgentRoleInput): Promise<CustomAgentRole> {
+    return this.invokeFn("custom_agent_role_update", { id, input }, customAgentRoleSchema);
+  }
+
+  async customAgentRoleDelete(id: string): Promise<void> {
+    return this.invokeFn("custom_agent_role_delete", { id }, voidResultSchema);
+  }
 
   async workspaceList(): Promise<WorkspaceRecord[]> {
     return workspaceList(this.invokeFn);

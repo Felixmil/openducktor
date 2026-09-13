@@ -76,7 +76,7 @@ The action keeps the task record, user fields, documents, QA reports, session hi
 
 Reject it while a live role owns mutable task state. Reject an epic while a direct child is not closed.
 
-Only the task detail sheet can show `close_task`. Do not show it on a Kanban card, Agent Studio quick action, bulk action, header, or command palette.
+Only the task detail sheet can show `close_task`. Do not show it on a Kanban card, Task Workflows quick action, bulk action, header, or command palette.
 
 ## UI rules
 

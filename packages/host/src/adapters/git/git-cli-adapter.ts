@@ -30,7 +30,7 @@ import {
   getCurrentBranchUnchecked,
   getStatusUnchecked,
   parseAheadBehind,
-  parseBranchRows,
+  listBranchesUnchecked,
   parseRemoteNames,
 } from "../../infrastructure/git/git-status";
 import {
@@ -168,15 +168,7 @@ export const createGitCliAdapter = (input: CreateGitCliAdapterInput): GitPort =>
       });
     },
     listBranches(workingDirectory) {
-      return Effect.gen(function* () {
-        const output = yield* runGit(runner, workingDirectory, [
-          "for-each-ref",
-          "--format=%(if)%(HEAD)%(then)1%(else)0%(end)|%(refname:short)|%(refname)",
-          "refs/heads",
-          "refs/remotes",
-        ]);
-        return parseBranchRows(output);
-      });
+      return listBranchesUnchecked(runner, workingDirectory);
     },
     listFiles(workingDirectory) {
       return Effect.gen(function* () {

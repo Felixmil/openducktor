@@ -46,6 +46,7 @@ import {
   parseHostEffect,
 } from "./http-origin";
 import type { WebLogger } from "./logger";
+import { withViteTestServer } from "./vite-test-server";
 
 const testLogger: WebLogger = {
   error: () => Effect.void,
@@ -241,7 +242,6 @@ describe("launcher internals", () => {
   ])(
     "allows exact dotted and undotted Vite hosts for $externalUrl with $host",
     async ({ host, externalUrl, hostname }) => {
-      const { createServer } = await import("vite");
       const parsed = parseCliArgs(["--host", host, "--external-url", externalUrl]);
       for (const input of [parsed, { host, externalUrl }]) {
         const bindHost = await Effect.runPromise(parseHostEffect(input.host, "--host", true));
@@ -263,51 +263,50 @@ describe("launcher internals", () => {
             ...(host === LOCALHOST ? [] : ["runner.internal.", "runner.internal"]),
           ]),
         ]);
-        const vite = await createServer({
-          configFile: false,
-          optimizeDeps: { noDiscovery: true, include: [] },
-          server: { ...options, middlewareMode: true, hmr: false, ws: false },
-          plugins: [
-            {
-              name: "test-host-response",
-              configureServer(server) {
-                return () =>
-                  server.middlewares.use((_request, response) => response.end("allowed"));
+        await withViteTestServer(
+          {
+            optimizeDeps: { noDiscovery: true, include: [] },
+            server: { ...options, middlewareMode: true, hmr: false, ws: false },
+            plugins: [
+              {
+                name: "test-host-response",
+                configureServer(server) {
+                  return () =>
+                    server.middlewares.use((_request, response) => response.end("allowed"));
+                },
               },
-            },
-          ],
-        });
-        // Keep the resolved bind hostname while sending real HTTP requests over loopback.
-        const server = createHttpServer(vite.middlewares);
-        try {
-          expect(vite.config.server.host).toBe(bindHost);
-          expect(vite.config.server.allowedHosts).toContain(hostname);
-          expect(vite.config.server.allowedHosts).toContain(`${hostname}.`);
-          await new Promise<void>((resolve) => server.listen(0, LOCALHOST, resolve));
-          const address = z.object({ port: z.number() }).parse(server.address());
-          for (const [requestHost, status] of [
-            [hostname, 200],
-            [`${hostname}.`, 200],
-            ["unknown.example", 403],
-            [`sub.${hostname}.`, 403],
-            ...(hostname === "runner.internal" ? [["sub.runner.internal", 403] as const] : []),
-          ] as const) {
-            const response = await fetch(`http://${LOCALHOST}:${address.port}/`, {
-              headers: { host: requestHost },
-              proxy: "",
-            });
-            expect(response.status).toBe(status);
-            await response.text();
-          }
-        } finally {
-          try {
-            await new Promise<void>((resolve, reject) =>
-              server.close((error) => (error ? reject(error) : resolve())),
-            );
-          } finally {
-            await vite.close();
-          }
-        }
+            ],
+          },
+          async (vite) => {
+            // Keep the resolved bind hostname while sending real HTTP requests over loopback.
+            const server = createHttpServer(vite.middlewares);
+            try {
+              expect(vite.config.server.host).toBe(bindHost);
+              expect(vite.config.server.allowedHosts).toContain(hostname);
+              expect(vite.config.server.allowedHosts).toContain(`${hostname}.`);
+              await new Promise<void>((resolve) => server.listen(0, LOCALHOST, resolve));
+              const address = z.object({ port: z.number() }).parse(server.address());
+              for (const [requestHost, status] of [
+                [hostname, 200],
+                [`${hostname}.`, 200],
+                ["unknown.example", 403],
+                [`sub.${hostname}.`, 403],
+                ...(hostname === "runner.internal" ? [["sub.runner.internal", 403] as const] : []),
+              ] as const) {
+                const response = await fetch(`http://${LOCALHOST}:${address.port}/`, {
+                  headers: { host: requestHost },
+                  proxy: "",
+                });
+                expect(response.status).toBe(status);
+                await response.text();
+              }
+            } finally {
+              await new Promise<void>((resolve, reject) =>
+                server.close((error) => (error ? reject(error) : resolve())),
+              );
+            }
+          },
+        );
       }
     },
     10_000,
