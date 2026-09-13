@@ -715,19 +715,25 @@ test("an activity link selects its chat while the page is already open", async (
 test("archive targets its tab, restore preserves selection, and the final archive shows the empty state", async () => {
   const first = sessionRecord("First");
   const second = sessionRecord("Second");
+  let archived: WorkspaceSession[] = [];
   const requests: WorkspaceSessionArchiveInput[] = [];
   configureShellBridge(
     createShellBridgeFixture({
       client: {
         workspaceSessionListActive: async () => [first, second],
-        workspaceSessionListArchived: async () => [{ ...second, archivedAt: 2000 }],
+        workspaceSessionListArchived: async () => archived,
         // Tab actions must work before the separate chat settings read completes.
         workspaceGetSettingsSnapshot: () => new Promise(() => {}),
         workspaceSessionArchive: async (input) => {
           requests.push(input);
-          return { ...(input.sessionId === first.id ? first : second), archivedAt: 2000 };
+          const record = { ...(input.sessionId === first.id ? first : second), archivedAt: 2000 };
+          archived = [...archived, record];
+          return record;
         },
-        workspaceSessionRestore: async () => second,
+        workspaceSessionRestore: async () => {
+          archived = archived.filter((record) => record.id !== second.id);
+          return second;
+        },
       },
     }),
   );

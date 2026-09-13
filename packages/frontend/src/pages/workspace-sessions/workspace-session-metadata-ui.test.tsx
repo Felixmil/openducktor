@@ -165,7 +165,7 @@ describe("Workspace Session metadata UI", () => {
         client: {
           workspaceSessionListArchived: async () => {
             reads += 1;
-            return [first, second];
+            return restored.includes(second.id) ? [first] : [first, second];
           },
           workspaceSessionRestore: async (input) => {
             restored.push(input.sessionId);
@@ -197,10 +197,11 @@ describe("Workspace Session metadata UI", () => {
       fireEvent.change(filter, { target: { value: "" } });
       expect(view.getByRole("button", { name: "Restore My session" })).toBeTruthy();
       fireEvent.change(filter, { target: { value: "/OTHER" } });
+      expect(reads).toBe(1);
       fireEvent.click(view.getByRole("button", { name: "Restore Build API" }));
       await view.findByText("No chats match your filter.", {}, { timeout: 800 });
       expect(restored).toEqual(["session-2"]);
-      expect(reads).toBe(1);
+      expect(reads).toBe(2);
     } finally {
       view.unmount();
       configureShellBridge(createUnavailableShellBridge());
@@ -208,12 +209,13 @@ describe("Workspace Session metadata UI", () => {
   });
   test("History is restore-only and disables restoration while the command is pending", async () => {
     const archived = { ...record(), archivedAt: 2000 };
+    let archivedRecords = [archived];
     const requests: Array<{ workspaceId: string; sessionId: string }> = [];
     let finish!: (session: WorkspaceSession) => void;
     configureShellBridge(
       createShellBridgeFixture({
         client: {
-          workspaceSessionListArchived: async () => [archived],
+          workspaceSessionListArchived: async () => archivedRecords,
           workspaceSessionRestore: (input) => {
             requests.push(input);
             return new Promise((resolve) => {
@@ -242,6 +244,7 @@ describe("Workspace Session metadata UI", () => {
       await waitFor(() => expect(restore.hasAttribute("disabled")).toBe(true), { timeout: 800 });
       expect(requests).toEqual([{ workspaceId: "A", sessionId: "session-1" }]);
       await act(async () => {
+        archivedRecords = [];
         finish(record());
       });
       await view.findByText("No archived sessions.", {}, { timeout: 800 });
@@ -253,10 +256,14 @@ describe("Workspace Session metadata UI", () => {
   });
 
   test("History keeps the archived row and reports a failed restore", async () => {
+    let reads = 0;
     configureShellBridge(
       createShellBridgeFixture({
         client: {
-          workspaceSessionListArchived: async () => [{ ...record(), archivedAt: 2000 }],
+          workspaceSessionListArchived: async () => {
+            reads += 1;
+            return [{ ...record(), archivedAt: 2000 }];
+          },
           workspaceSessionRestore: async () => {
             throw new Error("Worktree directory is missing.");
           },
@@ -273,6 +280,7 @@ describe("Workspace Session metadata UI", () => {
         await view.findByRole("button", { name: "Restore My session" }, { timeout: 800 }),
       );
       await view.findByText("Worktree directory is missing.", {}, { timeout: 800 });
+      expect(reads).toBe(1);
       expect(
         view.getByRole("button", { name: "Restore My session" }).hasAttribute("disabled"),
       ).toBe(false);

@@ -18,6 +18,7 @@ import { workspaceSessionTitle } from "@/state/operations/agent-orchestrator/ses
 import {
   updateWorkspaceSessionQueries,
   workspaceSessionListQueryOptions,
+  workspaceSessionQueryKeys,
 } from "@/state/queries/workspace-sessions";
 
 export function WorkspaceSessionHistoryDialog({
@@ -42,11 +43,18 @@ export function WorkspaceSessionHistoryDialog({
   );
   const restore = useMutation({
     mutationFn: (sessionId: string) => host.workspaceSessionRestore({ workspaceId, sessionId }),
-    onSuccess: (session) => updateWorkspaceSessionQueries(queryClient, workspaceId, session),
+    onSuccess: async (session) => {
+      updateWorkspaceSessionQueries(queryClient, workspaceId, session);
+      await queryClient.invalidateQueries({
+        queryKey: workspaceSessionQueryKeys.list(workspaceId, true),
+        exact: true,
+      });
+    },
     onSettled: () => {
       void invalidateRepoBranchesQuery(queryClient, repoPath);
     },
   });
+  const isArchiveSettled = archived.isSuccess && !archived.isFetching && !restore.isPending;
   return (
     <Dialog
       open
@@ -68,11 +76,17 @@ export function WorkspaceSessionHistoryDialog({
           className="mt-4 shrink-0"
         />
         <DialogBody className="mt-4 flex max-h-96 flex-col gap-2">
-          {archived.isPending && <p role="status">Loading archived sessions…</p>}
+          {(archived.isPending || archived.isFetching) && (
+            <p role="status">Loading archived sessions…</p>
+          )}
           {archived.isError && (
             <div role="alert">
               <p className="text-sm text-destructive">{errorMessage(archived.error)}</p>
-              <Button variant="outline" onClick={() => void archived.refetch()}>
+              <Button
+                variant="outline"
+                disabled={archived.isFetching}
+                onClick={() => void archived.refetch()}
+              >
                 Retry
               </Button>
             </div>
@@ -106,7 +120,7 @@ export function WorkspaceSessionHistoryDialog({
               <Button
                 size="sm"
                 variant="outline"
-                disabled={restore.isPending}
+                disabled={restore.isPending || archived.isFetching}
                 aria-label={`Restore ${workspaceSessionTitle(record)}`}
                 onClick={() => restore.mutate(record.id)}
               >
@@ -119,10 +133,10 @@ export function WorkspaceSessionHistoryDialog({
               </Button>
             </div>
           ))}
-          {archived.data?.length === 0 && (
+          {isArchiveSettled && archived.data?.length === 0 && (
             <p className="py-6 text-center text-sm text-muted-foreground">No archived sessions.</p>
           )}
-          {archived.data && archived.data.length > 0 && filteredSessions?.length === 0 && (
+          {isArchiveSettled && archived.data.length > 0 && filteredSessions?.length === 0 && (
             <p role="status" className="py-6 text-center text-sm text-muted-foreground">
               No chats match your filter.
             </p>
