@@ -43,9 +43,8 @@ export function ThemePicker({
       value={themePreference}
       options={themePreferenceOptions}
       disabled={disabled}
+      searchable={false}
       placeholder="Select theme"
-      searchPlaceholder="Search theme..."
-      emptyText="No theme option found."
       {...(triggerAriaLabelledBy === undefined ? {} : { triggerAriaLabelledBy })}
       {...(triggerAriaDescribedBy === undefined ? {} : { triggerAriaDescribedBy })}
       {...(triggerClassName === undefined ? {} : { triggerClassName })}

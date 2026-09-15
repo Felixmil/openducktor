@@ -138,6 +138,15 @@ describe("settings appearance section", () => {
       expect(screen.getAllByText("System default").length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText("Light").length).toBeGreaterThanOrEqual(1);
 
+      const themeOptions = document.querySelectorAll("[data-slot='command-item']");
+      expect([...themeOptions].map((option) => option.textContent)).toEqual([
+        "System default",
+        "Light",
+        "Dark",
+      ]);
+      expect(document.querySelector("[data-slot='command-input']:not(.sr-only)")).toBeNull();
+      expect(screen.queryByPlaceholderText("Search theme...")).toBeNull();
+
       await act(async () => {
         const options = screen.getAllByText("Dark");
         const option = options.at(-1);
